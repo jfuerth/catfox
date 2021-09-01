@@ -67,9 +67,12 @@ fall
 	lda #15
 	sta standcount
 
-	lda #$30
+	lda catmob1+mobdyl
+	clc
+	adc #2
 	sta catmob1+mobdyl
-	lda #0
+	lda catmob1+mobdyh
+	adc #0
 	sta catmob1+mobdyh
 
 	jmp done
@@ -235,6 +238,11 @@ updateone
 	lda (ptr0),y
 	ldy #mobxh
 	adc (ptr0),y
+
+	cmp #40 ; check for wrap
+	bcc savex
+	lda #0
+savex
 	sta (ptr0),y
 	sta r1
 	
@@ -250,10 +258,13 @@ updateone
 	lda (ptr0),y
 	ldy #mobyh
 	adc (ptr0),y
+
+	cmp #26 ; check for wrap
+	bcc savey
+	lda #0
+savey
 	sta (ptr0),y
 	sta r3
-
-	; TODO wrap x at 40, y at 25
 
 	; calc pixel positions
 
