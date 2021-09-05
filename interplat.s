@@ -1,4 +1,3 @@
-*=$c000
 
 .include "catfox_spritenums.s"
 
@@ -14,6 +13,18 @@ r4=$fb
 ptr0=$fc
 ptr0h=$fd
 
+add16	.macro
+	clc
+	lda \1
+	adc #\2
+	sta \1
+	lda \1+1
+	adc #0
+	sta \1+1
+	.endm
+
+; --------- start of code ---------
+*=$c000
 	jmp init
 
 handleint
@@ -170,7 +181,7 @@ init
 	
 	lda #numsprites
 	ldx #<(firstsprite*64)
-vicram=>(screen & $C000)
+vicram=>(screen & $C000) ; top 2 bits
 	ldy #>((firstsprite*64) . vicram)
 	sei
 
@@ -224,8 +235,7 @@ testmob	.repeat mobstructsz,$00
 mobtab
 	.word catmob1
 	.word testmob
-mobtabsz
-	.byte 2
+	.word 0
 
 ; --- mob routine state ---
 spritenum
@@ -236,11 +246,12 @@ spritenum
 mobupdate
 ; shift a mob into the vic registers
 	.block
-	lda #1
-	sta spritenum
 	lda #0
 	sta $d010 ; sprite hi x bits
 	sta $d015 ; sprite enable
+
+	lda #1
+	sta spritenum
 
 	lda #<catmob1
 	sta ptr0
@@ -327,12 +338,16 @@ savey
 	rol $d010
 
 	; calc y pixel pos -> r3
-	lda r2
+	; y offset is 21 (%00010101)
+	; it will be shifted left 3
+	; after adding to word in r2,r3
+	; so we preshift right
 	clc
-	adc #$a0 ;hi bits y offset 29>>3
+	lda r2
+	adc #%10100000 ;hi bits 21>>3
 	sta r2
 	lda r3
-	adc #$03 ; y offset 29>>3
+	adc #$00000010 ; lo bits 21>>3
 	sta r3
 
 	clc
@@ -393,10 +408,10 @@ mirrorsprites
 	ldx #0
 	stx r0
 	lsr a
-	rol r0
+	ror r0
 	lsr a
-	rol r0 ; lo byte = 2 LSB of a
-	sta r1 ; hi byte of a << 6
+	ror r0 ; lo = 2 LSB of a in MSB
+	sta r1 ; hi = >(a << 6)
 
 	clc
 	lda ptr0
@@ -407,17 +422,17 @@ mirrorsprites
 	sta dstaddr+2
 
 flipsprite
-	ldx #29
+	ldx #21
 	stx r4  ; lines per sprite
 
 flipline
 	ldy #2  ; bytes per line
 	lda (ptr0),y
 	ldx #7
-shiftr2	asl a
-	ror r2
+shiftr0	asl a
+	ror r0
 	dex
-	bpl shiftr2
+	bpl shiftr0
 
 	dey
 	lda (ptr0),y
@@ -430,10 +445,10 @@ shiftr1	asl a
 	dey
 	lda (ptr0),y
 	ldx #7
-shiftr0	asl a
-	ror r0
+shiftr2	asl a
+	ror r2
 	dex
-	bpl shiftr0
+	bpl shiftr2
 
 	ldx #2
 writedst
@@ -442,28 +457,21 @@ dstaddr	sta $ffff,x ; addr set by code
 	dex
 	bpl writedst	
 
-	; increment ptrs by 3 (1 line)
-	clc
-	lda ptr0
-	adc #3
-	sta ptr0
-	lda ptr0h
-	adc #0
-	sta ptr0h
-
-	clc
-	lda dstaddr+1
-	adc #3
-	sta dstaddr+1
-	lda dstaddr+2
-	adc #0
-	sta dstaddr+2
+	; inc ptrs by 3 (1 line)
+	#add16 ptr0,3
+	#add16 dstaddr+1,3
 
 	dec r4
 	bne flipline
 	
+	; inc ptrs past unused byte
+	#add16 ptr0,1
+	#add16 dstaddr+1,1
+
 	dec r3
 	bne flipsprite
 
 	rts
 	.bend
+
+
