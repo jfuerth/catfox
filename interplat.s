@@ -320,19 +320,22 @@ savey
 	; 16-bit shift 3 places left
 
 	; merge in x-offset of 24
-	; into high byte (24<<3 = 3)
+	; into high byte (24>>3 = 3)
+	; can ignore lo byte because
+	; xoffs is exactly 3 chars wide
 	clc
 	lda r1
 	adc #3
-	sta r1
 
+	; expand fixedpt pos to px in r1
 	clc
 	rol r0
-	rol r1
+	rol a
 	rol r0
-	rol r1
+	rol a
 	rol r0
-	rol r1
+	rol a
+	sta r1
 
 	; x overflow to msb
 	rol $d010
