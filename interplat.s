@@ -338,25 +338,20 @@ savey
 	rol $d010
 
 	; calc y pixel pos -> r3
-	; y offset is 21 (%00010101)
-	; it will be shifted left 3
-	; after adding to word in r2,r3
-	; so we preshift right
-	clc
-	lda r2
-	adc #%10100000 ;hi bits 21>>3
-	sta r2
+	; don't need fancy prescaled
+	; offset because we don't save
+	; the carry for y
 	lda r3
-	adc #$00000010 ; lo bits 21>>3
-	sta r3
-
 	clc
 	rol r2
-	rol r3
+	rol a
 	rol r2
-	rol r3
+	rol a
 	rol r2
-	rol r3
+	rol a
+
+	adc #29 ; sprite y offset
+	sta r3
 
 	; enable this sprite
 	sec
