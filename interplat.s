@@ -48,7 +48,6 @@ handleint
 	lda (ptr0),y
 	tay
 
-
 	jsr getsc
 
 	cmp #$80
@@ -69,6 +68,7 @@ stand
 	sta catmob1+mobdxh
 	sta catmob1+mobdyl
 	sta catmob1+mobdyh
+	sta catmob1+mobyl
 
 	jmp done
 
