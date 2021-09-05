@@ -10,8 +10,9 @@ r0=$f7
 r1=$f8
 r2=$f9
 r3=$fa
-ptr0=$fb
-ptr0h=$fc
+r4=$fb
+ptr0=$fc
+ptr0h=$fd
 
 	jmp init
 
@@ -35,6 +36,7 @@ handleint
 	ldy #mobyh
 	lda (ptr0),y
 	tay
+
 
 	jsr getsc
 
@@ -61,7 +63,7 @@ stand
 
 fall
 	inc $d001
-        lda #catfox_fall_0
+        lda #catfox_fall_0 + numsprites
         sta catmob1+mobimg
 
 	lda #15
@@ -157,8 +159,26 @@ init
 	lda #catfox_stand_0
 	sta catmob1+mobimg
 
-install
+	; testmob setup
+	lda #10
+	sta testmob+mobxh
+	sta testmob+mobyh
+	lda #firstsprite
+	sta testmob+mobimg
+	lda #1
+	sta testmob+mobcolr
+	
+	lda #numsprites
+	ldx #<(firstsprite*64)
+vicram=>(screen & $C000)
+	ldy #>((firstsprite*64) . vicram)
 	sei
+
+	; has to be done with intrpt
+	; disabled because it uses zp
+	jsr mirrorsprites
+
+install
 	lda #<handleint
 	sta $0314
 	lda #>handleint
@@ -196,9 +216,16 @@ mobimg=9
 mobanimframe=10
 mobstructsz=11
 
-; --- catmob1
-catmob1
-	.repeat mobstructsz,$00
+; --- mob structs
+catmob1	.repeat mobstructsz,$00
+testmob	.repeat mobstructsz,$00
+
+; --- mob pointers
+mobtab
+	.word catmob1
+	.word testmob
+mobtabsz
+	.byte 2
 
 ; --- mob routine state ---
 spritenum
@@ -209,22 +236,32 @@ spritenum
 mobupdate
 ; shift a mob into the vic registers
 	.block
-	lda #0
+	lda #1
 	sta spritenum
+	lda #0
 	sta $d010 ; sprite hi x bits
 	sta $d015 ; sprite enable
+
 	lda #<catmob1
 	sta ptr0
 	lda #>catmob1
 	sta ptr0+1
 	jsr updateone
 	
+	;TODO use mobtab/mobtabsz
+	dec spritenum
+	lda #<testmob
+	sta ptr0
+	lda #>testmob
+	sta ptr0+1
+	jsr updateone
+
 	rts
 
 updateone
 ; in: ptr0 - mob struct pointer
 ;     spritenum - vic sprite number
-;     (must be in order staring with 0)
+;     (call in desc order)
 
 	; apply dx
 	clc
@@ -240,8 +277,8 @@ updateone
 	adc (ptr0),y
 
 	cmp #40 ; check for wrap
-	bcc savex
-	lda #0
+	bmi savex
+	lda #(0-3)
 savex
 	sta (ptr0),y
 	sta r1
@@ -260,8 +297,8 @@ savex
 	adc (ptr0),y
 
 	cmp #26 ; check for wrap
-	bcc savey
-	lda #0
+	bmi savey
+	lda #(0-3)
 savey
 	sta (ptr0),y
 	sta r3
@@ -336,4 +373,97 @@ savey
 
 	rts
 
+	.bend
+
+mirrorsprites
+; mirrors single colour sprite images
+; x & y - lo and hi bytes of 1st sprite
+; a - number of sprites to flip
+;     (also offset of flipped sprites)
+	.block
+
+	stx ptr0 ; source pointer
+	sty ptr0h
+
+	sta r3 ; overall loop count
+
+	; set first dest line addr
+	; = ptr0 + 64*a
+	; using >>2 rather than <<6
+	ldx #0
+	stx r0
+	lsr a
+	rol r0
+	lsr a
+	rol r0 ; lo byte = 2 LSB of a
+	sta r1 ; hi byte of a << 6
+
+	clc
+	lda ptr0
+	adc r0
+	sta dstaddr+1
+	lda ptr0h
+	adc r1
+	sta dstaddr+2
+
+flipsprite
+	ldx #29
+	stx r4  ; lines per sprite
+
+flipline
+	ldy #2  ; bytes per line
+	lda (ptr0),y
+	ldx #7
+shiftr2	asl a
+	ror r2
+	dex
+	bpl shiftr2
+
+	dey
+	lda (ptr0),y
+	ldx #7
+shiftr1	asl a
+	ror r1
+	dex
+	bpl shiftr1
+
+	dey
+	lda (ptr0),y
+	ldx #7
+shiftr0	asl a
+	ror r0
+	dex
+	bpl shiftr0
+
+	ldx #2
+writedst
+	lda r0,x
+dstaddr	sta $ffff,x ; addr set by code
+	dex
+	bpl writedst	
+
+	; increment ptrs by 3 (1 line)
+	clc
+	lda ptr0
+	adc #3
+	sta ptr0
+	lda ptr0h
+	adc #0
+	sta ptr0h
+
+	clc
+	lda dstaddr+1
+	adc #3
+	sta dstaddr+1
+	lda dstaddr+2
+	adc #0
+	sta dstaddr+2
+
+	dec r4
+	bne flipline
+	
+	dec r3
+	bne flipsprite
+
+	rts
 	.bend
