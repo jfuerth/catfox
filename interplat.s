@@ -23,6 +23,11 @@ add16	.macro
 	sta \1+1
 	.endm
 
+; ----- settings ------
+wlkspd=30
+jmpspd=50
+sitdelay=60
+
 ; --------- start of code ---------
 *=$c000
 	jmp init
@@ -35,14 +40,65 @@ handleint
 	lda #$ff
 	sta $d019
 
-	lda #<catmob1
+	lda #<catmob
 	sta ptr0
-	lda #>catmob1
+	lda #>catmob
 	sta ptr0+1
 
+	; jsr readjoy
+	lda $dc00
+	and #%00011111
+	cmp #%00011111
+	bne notidle
+
+	lda #0
+	sta catmob+mobdxl
+	sta catmob+mobdxh
+	jmp donejoy ; rts
+
+notidle
+	.block
+ckleft	lda #%00000100
+	bit $dc00
+	bne done
+
+	lda #<($ffff-wlkspd)
+	sta catmob+mobdxl
+	lda #>($ffff-wlkspd)
+	sta catmob+mobdxh
+done
+	.bend
+
+	.block
+ckright	lda #%00001000
+	bit $dc00
+	bne done
+
+	lda #<wlkspd
+	sta catmob+mobdxl
+	lda #>wlkspd
+	sta catmob+mobdxh
+done
+	.bend
+
+	.block
+ckfire	lda #%00010000
+	bit $dc00
+	bne done
+
+	lda #<($ffff-jmpspd)
+	sta catmob+mobdyl
+	lda #>($ffff-jmpspd)
+	sta catmob+mobdyh
+done
+	.bend
+donejoy
+
+	; check if mob is on a platform
 	ldy #mobxh
 	lda (ptr0),y
 	tax
+	inx ; centre hitbox on sprite
 
 	ldy #mobyh
 	lda (ptr0),y
@@ -53,63 +109,83 @@ handleint
 	cmp #$80
 	bcc fall
 
-	ldx standcount
-	beq walk
+	; check if not moving
+	lda #<catmob
+	sta ptr0
+	lda #>catmob
+	sta ptr0h
 
+	ldy #mobdxh
+	lda (ptr0),y
+	ldy #mobdxl
+	ora (ptr0),y
+	bne walk
+
+	lda standcount
+	beq sit
 
 ; --------- actions ------------
 stand
 	dec standcount
         lda #catfox_stand_0
-        sta catmob1+mobimg
+        sta catmob+mobimg
 
 	lda #0
-	sta catmob1+mobdxl
-	sta catmob1+mobdxh
-	sta catmob1+mobdyl
-	sta catmob1+mobdyh
-	sta catmob1+mobyl
+	sta catmob+mobdxl
+	sta catmob+mobdxh
+	sta catmob+mobdyl
+	sta catmob+mobdyh
+	sta catmob+mobyl
+
+	jmp done
+
+sit
+	lda #catfox_sitting_3
+	sta catmob+mobimg
+
+	lda #0
+	sta catmob+mobdyl
+	sta catmob+mobdyh
+	sta catmob+mobyl
 
 	jmp done
 
 fall
 	inc $d001
-        lda #catfox_fall_0 + numsprites
-        sta catmob1+mobimg
+        lda #catfox_fall_0
+        sta catmob+mobimg
 
-	lda #15
+	lda #sitdelay
 	sta standcount
 
-	lda catmob1+mobdyl
+	lda catmob+mobdyl
 	clc
 	adc #2
-	sta catmob1+mobdyl
-	lda catmob1+mobdyh
+	sta catmob+mobdyl
+	lda catmob+mobdyh
 	adc #0
-	sta catmob1+mobdyh
+	sta catmob+mobdyh
 
 	jmp done
 
-walk	; TODO handle anim in mobupdate
-	lda catmob1+mobanimframe
+walk	
+	lda #sitdelay
+	sta standcount
+
+	; TODO handle anim in mobupdate
+	lda catmob+mobanimframe
 	tax
 	lsr a
 	lsr a
 	tay
 	lda walkframes,y
-	sta catmob1+mobimg
+	sta catmob+mobimg
 	inx
 	cpx #(4*4) ; num of walkframes
 	bne walkframesave
 	ldx #0
 walkframesave
-	stx catmob1+mobanimframe
-
-	; set walk speed
-	lda #$20
-	sta catmob1+mobdxl
-	lda #0
-	sta catmob1+mobdxh
+	stx catmob+mobanimframe
 
 	jmp done
 
@@ -164,11 +240,19 @@ line    .var line+40
 ; ------- one time setup --------
 init
 	; catfox mob setup
-	lda #20
-	sta catmob1+mobxh
-	sta catmob1+mobyh
+	lda #1
+	sta catmob+mobxh
+	sta catmob+mobyh
+	lda #0
+	sta catmob+mobdxl
+	sta catmob+mobdyh
+	sta catmob+mobdyl
+	sta catmob+mobdyh
+
 	lda #catfox_stand_0
-	sta catmob1+mobimg
+	sta catmob+mobimg
+	lda #1
+	sta catmob+mobcolr
 
 	; testmob setup
 	lda #10
@@ -176,7 +260,7 @@ init
 	sta testmob+mobyh
 	lda #firstsprite
 	sta testmob+mobimg
-	lda #1
+	lda #2
 	sta testmob+mobcolr
 	
 	lda #numsprites
@@ -202,7 +286,7 @@ install
 	lda #1
 	sta $d01a ; enable raster irq
 	
-	lda #140
+	lda #249
 	sta $d012 ; set raster line num
 
 	lda #$1b
@@ -228,12 +312,12 @@ mobanimframe=10
 mobstructsz=11
 
 ; --- mob structs
-catmob1	.repeat mobstructsz,$00
+catmob	.repeat mobstructsz,$00
 testmob	.repeat mobstructsz,$00
 
 ; --- mob pointers
 mobtab
-	.word catmob1
+	.word catmob
 	.word testmob
 	.word 0
 
@@ -253,9 +337,9 @@ mobupdate
 	lda #1
 	sta spritenum
 
-	lda #<catmob1
+	lda #<catmob
 	sta ptr0
-	lda #>catmob1
+	lda #>catmob
 	sta ptr0+1
 	jsr updateone
 	
@@ -370,7 +454,18 @@ savey
 	; TODO animate
 	ldy #mobimg
 	lda (ptr0),y
-	ldy spritenum
+	tax
+
+	; if going left, use flipped img
+	ldy #mobdxh
+	lda (ptr0),y
+	bpl noflip
+	txa
+	adc #numsprites
+	tax
+
+noflip	ldy spritenum
+	txa
 	sta spriteimg,y
 
 	; pixel position to x&y regs
