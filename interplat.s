@@ -121,15 +121,8 @@ donejoy
 	ora (ptr0),y
 	bne walk
 
-	lda standcount
-	beq sit
-
 ; --------- actions ------------
 stand
-	dec standcount
-        lda #catfox_stand_0
-        sta catmob+mobimg
-
 	lda #0
 	sta catmob+mobdxl
 	sta catmob+mobdxh
@@ -139,28 +132,12 @@ stand
 
 	jmp done
 
-sit
-	lda #catfox_sitting_3
-	sta catmob+mobimg
-
-	lda #0
-	sta catmob+mobdyl
-	sta catmob+mobdyh
-	sta catmob+mobyl
-
-	jmp done
-
 fall
 	inc $d001
-        lda #catfox_fall_0
-        sta catmob+mobimg
-
-	lda #sitdelay
-	sta standcount
 
 	lda catmob+mobdyl
 	clc
-	adc #2
+	adc #2 ; gravity
 	sta catmob+mobdyl
 	lda catmob+mobdyh
 	adc #0
@@ -169,24 +146,6 @@ fall
 	jmp done
 
 walk	
-	lda #sitdelay
-	sta standcount
-
-	; TODO handle anim in mobupdate
-	lda catmob+mobanimframe
-	tax
-	lsr a
-	lsr a
-	tay
-	lda walkframes,y
-	sta catmob+mobimg
-	inx
-	cpx #(4*4) ; num of walkframes
-	bne walkframesave
-	ldx #0
-walkframesave
-	stx catmob+mobanimframe
-
 	jmp done
 
 done
@@ -194,14 +153,6 @@ done
 
 	dec $d020
 	jmp $ea31
-
-standcount
-	.byte 5
-walkframes
-	.byte catfox_run_0
-	.byte catfox_run_1
-	.byte catfox_run_2
-	.byte catfox_run_3
 
 	.bend
 
@@ -249,8 +200,13 @@ init
 	sta catmob+mobdyl
 	sta catmob+mobdyh
 
-	lda #catfox_stand_0
-	sta catmob+mobimg
+	lda #<cfidleanim
+	sta catmob+mobalist
+	lda #>cfidleanim
+	sta catmob+mobalist+1
+	lda #0
+	sta catmob+mobaframe
+
 	lda #1
 	sta catmob+mobcolr
 
@@ -258,8 +214,13 @@ init
 	lda #10
 	sta testmob+mobxh
 	sta testmob+mobyh
-	lda #firstsprite
-	sta testmob+mobimg
+	lda #<cfwalkanim
+	sta testmob+mobalist
+	lda #>cfwalkanim
+	sta testmob+mobalist+1
+	lda #0
+	sta catmob+mobaframe
+
 	lda #2
 	sta testmob+mobcolr
 	
@@ -295,6 +256,32 @@ install
 	cli
 	rts
 
+; --------- animation ---------
+cfidleanim
+	.byte catfox_stand_0,60
+	.byte catfox_sitting_0,4
+	.byte catfox_sitting_1,4
+	.byte catfox_sitting_2,4
+	.byte catfox_sitting_3,250
+	.byte 0,0 ; TODO stay on last
+
+cfjumpanim
+	.byte catfox_jump_0,2
+	.byte catfox_jump_1,0
+	.byte 0,1
+
+cfwalkanim
+	.byte catfox_run_0,3
+	.byte catfox_run_1,4
+	.byte catfox_run_2,5
+	.byte catfox_run_3,3
+	.byte 0,0 ; goto frame 0
+
+cffallanim
+	.byte catfox_fall_0,2
+	.byte catfox_fall_1,2
+	.byte 0,0 ; goto frame 0
+
 ; --------- mob structs ---------
 
 ; mob struct
@@ -308,8 +295,10 @@ mobdyl=6
 mobdyh=7
 mobcolr=8
 mobimg=9
-mobanimframe=10
-mobstructsz=11
+mobalist=10 ; +11
+mobaframe=12
+mobattl=13 ; countdown current frame
+mobstructsz=14
 
 ; --- mob structs
 catmob	.repeat mobstructsz,$00
@@ -334,6 +323,7 @@ mobupdate
 	sta $d010 ; sprite hi x bits
 	sta $d015 ; sprite enable
 
+	; TODO count live mobs (max 8)  
 	lda #1
 	sta spritenum
 
@@ -407,6 +397,7 @@ savey
 	; into high byte (24>>3 = 3)
 	; can ignore lo byte because
 	; xoffs is exactly 3 chars wide
+	; and hi byte counts chars
 	clc
 	lda r1
 	adc #3
@@ -444,17 +435,95 @@ savey
 	sec
 	rol $d015
 
+	; pixel position to hw regs
+	lda spritenum
+	asl a ;for interleaved xy coords
+	tay
+
+	lda r1 ; x coord
+	sta $d000,y
+
+	lda r3 ; y coord
+	sta $d001,y
+
 	; set colour
 	ldy #mobcolr
 	lda (ptr0),y
 	ldy spritenum
 	sta $d027,y
 
+	; ---- repurposing r0-r4 ----
+
+	ldy #mobattl
+	lda (ptr0),y
+	sec
+	sbc #1
+	beq nextaframe
+	sta (ptr0),y
+	jmp showimg
+
+nextaframe
 	; set animation frame
-	; TODO animate
+	; put anim list ptr in r3/r4
+	ldy #mobalist
+	lda (ptr0),y
+	sta r3
+	iny
+	lda (ptr0),y
+	sta r4
+
+	; fetch current anim list instr
+	; into r0/r1
+fetchanimcode
+	ldy #mobaframe
+	lda (ptr0),y
+	sta r2 ; current list offset
+	tay
+	lda (r3),y
+	sta r0 ; command/imgnum
+	iny
+	lda (r3),y
+	sta r1 ; cmd arg/frame count
+	
+	ldx r0
+	bne newimg
+
+	; process command
+	; goto frame in r1 (still in a)
+	asl ; frame offset is frame*2
+	ldy #mobaframe
+	sta (ptr0),y
+
+	; try again with new aframe offs
+	jmp fetchanimcode
+	
+newimg
+	; update list position
+	clc
+	lda r2
+	adc #2
+	ldy #mobaframe
+	sta (ptr0),y
+	
+	; set frame ttl counter
+	ldy #mobattl
+	lda r1
+	sta (ptr0),y
+
+	; update mobimg
+	ldy #mobimg
+	lda r0 ; new image num
+	sta (ptr0),y
+	bne showimg2
+
+	; end of alist processing
+
+showimg
+	; set hw sprite to mobimg
+	; (possibly x-mirrored)
 	ldy #mobimg
 	lda (ptr0),y
-	tax
+showimg2 tax
 
 	; if going left, use flipped img
 	ldy #mobdxh
@@ -467,17 +536,6 @@ savey
 noflip	ldy spritenum
 	txa
 	sta spriteimg,y
-
-	; pixel position to x&y regs
-	lda spritenum
-	asl a ;for interleaved xy coords
-	tay
-
-	lda r1 ; x coord
-	sta $d000,y
-
-	lda r3 ; y coord
-	sta $d001,y
 
 	rts
 
