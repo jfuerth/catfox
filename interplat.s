@@ -49,29 +49,20 @@ handleint
 	lda #>catmob
 	sta ptr0+1
 
-	; indirect function call:
-	; push return address
-	; then push target address
-	; remember:
-	;  1. push hi byte first
-	;  2. subtract 1 from ret addr
-	lda #>actdone
-	pha
-	lda #<actdone
-	pha
+	; "jsr mobact" trampoline
+	; load "jmp mobact" into r0,r3
+	; then jsr to that
+	lda #$4c ; direct jmp opcode
+	sta r0
 	ldy #mobact
 	lda (ptr0),y
-	tax
-	dex ; TODO carry/borrow
+	sta r1
 	iny
 	lda (ptr0),y
-	pha
-	txa
-	pha
-	rts ; actually jsr (ptr0+y)
+	sta r2
+	jsr r0
 
-actdone	nop
-	jsr mobupdate
+	jsr vicupdate
 
 	dec $d020
 	jmp $ea31
@@ -264,6 +255,23 @@ init
 	lda #2
 	sta testmob+mobcolr
 	
+	; tm2 setup
+	lda #15
+	sta tm2+mobxh
+	sta tm2+mobyh
+	lda #<cfjumpanim
+	sta tm2+mobalist
+	lda #>cfjumpanim
+	sta tm2+mobalist+1
+	lda #0
+	sta tm2+mobaframe
+	lda #1
+	sta tm2+mobattl
+
+	lda #3
+	sta tm2+mobcolr
+	
+	; mirror sprite images
 	lda #numsprites
 	ldx #<(firstsprite*64)
 vicram=>(screen & $C000) ; top 2 bits
@@ -344,11 +352,13 @@ mobstructsz=16
 ; --- mob structs
 catmob	.repeat mobstructsz,$00
 testmob	.repeat mobstructsz,$00
+tm2	.repeat mobstructsz,$00
 
 ; --- mob pointers
 mobtab
 	.word catmob
 	.word testmob
+	.word tm2
 	.word 0
 
 ; --- mob routine state ---
@@ -357,34 +367,60 @@ spritenum
 
 ; -------- mob routines --------
 
-mobupdate
-; shift a mob into the vic registers
+vicupdate
+; shift all active mobs into the vic
+; registers
 	.block
 	lda #0
 	sta $d010 ; sprite hi x bits
 	sta $d015 ; sprite enable
 
-	; TODO count live mobs (max 8)  
-	lda #1
+	; count live mobs (max 8)  
+	; look at hi bytes of mobtab
+	; entries (mob structs never on 
+	; zeropage)
+	ldx #1 ; hi byte of 1st entry
+countmobtab
+	lda mobtab,x
+	beq mobtabend ; hi byte eq 0
+	inx
+	inx
+	cpx #17
+	beq mobtabend
+	bne countmobtab
+
+mobtabend
+	; back to hi byte of last real
+	; entry (at 0 terminator now)
+	dex
+	dex
+	stx mobtabpos
+
+	; store count in spritenum
+	; /2 (word offset to count)
+	txa
+	lsr a
 	sta spritenum
 
-	lda #<catmob
-	sta ptr0
-	lda #>catmob
+updateloop
+	ldx mobtabpos
+	cpx #$ff
+	beq done
+	lda mobtab,x
 	sta ptr0+1
-	jsr updateone
-	
-	;TODO use mobtab/mobtabsz
+	dex
+	lda mobtab,x
+	sta ptr0
+	dex
+	stx mobtabpos
+	jsr vicupdateone
 	dec spritenum
-	lda #<testmob
-	sta ptr0
-	lda #>testmob
-	sta ptr0+1
-	jsr updateone
+	jmp updateloop
+	
+done	rts
+mobtabpos .byte 0
 
-	rts
-
-updateone
+vicupdateone
 ; in: ptr0 - mob struct pointer
 ;     spritenum - vic sprite number
 ;     (call in desc order)
