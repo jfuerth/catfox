@@ -40,11 +40,46 @@ handleint
 	lda #$ff
 	sta $d019
 
+	; TODO factor out mobupdate
+	; and vicupdate routines
+	; driven by a mob table
+
 	lda #<catmob
 	sta ptr0
 	lda #>catmob
 	sta ptr0+1
 
+	; indirect function call:
+	; push return address
+	; then push target address
+	; remember:
+	;  1. push hi byte first
+	;  2. subtract 1 from ret addr
+	lda #>actdone
+	pha
+	lda #<actdone
+	pha
+	ldy #mobact
+	lda (ptr0),y
+	tax
+	dex ; TODO carry/borrow
+	iny
+	lda (ptr0),y
+	pha
+	txa
+	pha
+	rts ; actually jsr (ptr0+y)
+
+actdone	nop
+	jsr mobupdate
+
+	dec $d020
+	jmp $ea31
+	
+	.bend	
+
+playeract
+.block
 	; jsr readjoy
 	lda $dc00
 	and #%00011111
@@ -149,11 +184,7 @@ walk
 	jmp done
 
 done
-	jsr mobupdate
-
-	dec $d020
-	jmp $ea31
-
+	rts
 	.bend
 
 getsc
@@ -206,9 +237,16 @@ init
 	sta catmob+mobalist+1
 	lda #0
 	sta catmob+mobaframe
+	lda #1
+	sta catmob+mobattl
 
 	lda #1
 	sta catmob+mobcolr
+	
+	lda #<playeract
+	sta catmob+mobact
+	lda #>playeract
+	sta catmob+mobact+1
 
 	; testmob setup
 	lda #10
@@ -219,7 +257,9 @@ init
 	lda #>cfwalkanim
 	sta testmob+mobalist+1
 	lda #0
-	sta catmob+mobaframe
+	sta testmob+mobaframe
+	lda #1
+	sta testmob+mobattl
 
 	lda #2
 	sta testmob+mobcolr
@@ -263,7 +303,7 @@ cfidleanim
 	.byte catfox_sitting_1,4
 	.byte catfox_sitting_2,4
 	.byte catfox_sitting_3,250
-	.byte 0,0 ; TODO stay on last
+	.byte 0,4 ; stay on last
 
 cfjumpanim
 	.byte catfox_jump_0,2
@@ -298,7 +338,8 @@ mobimg=9
 mobalist=10 ; +11
 mobaframe=12
 mobattl=13 ; countdown current frame
-mobstructsz=14
+mobact=14 ; +15
+mobstructsz=16
 
 ; --- mob structs
 catmob	.repeat mobstructsz,$00
