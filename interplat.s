@@ -40,29 +40,11 @@ handleint
 	lda #$ff
 	sta $d019
 
-	; TODO factor out mobupdate
-	; and vicupdate routines
-	; driven by a mob table
-
-	lda #<catmob
-	sta ptr0
-	lda #>catmob
-	sta ptr0+1
-
-	; "jsr mobact" trampoline
-	; load "jmp mobact" into r0,r3
-	; then jsr to that
-	lda #$4c ; direct jmp opcode
-	sta r0
-	ldy #mobact
-	lda (ptr0),y
-	sta r1
-	iny
-	lda (ptr0),y
-	sta r2
-	jsr r0
-
 	jsr vicupdate
+
+	inc $d020
+	jsr mobupdate
+	dec $d020
 
 	dec $d020
 	jmp $ea31
@@ -130,7 +112,7 @@ donejoy
 	lda (ptr0),y
 	tay
 
-	jsr getsc
+	jsr getsc ; trashes r3,r4
 
 	cmp #$80
 	bcc fall
@@ -180,6 +162,7 @@ done
 
 getsc
 ; gets screencode at xr,yr -> acc
+; trashes r3&r4
 	.block
 	; find line addr in table
 	tya    ; y coord
@@ -188,13 +171,13 @@ getsc
 
 	; store scr line addr to ptr0
 	lda scrlines,y
-	sta ptr0
+	sta r3
 	iny
 	lda scrlines,y
-	sta ptr0h
+	sta r4
 	txa
 	tay  ; x coord
-	lda (ptr0),y
+	lda (r3),y
 	rts
 	.bend
 
@@ -319,10 +302,10 @@ cfjumpanim
 	.byte 0,1
 
 cfwalkanim
-	.byte catfox_run_0,3
-	.byte catfox_run_1,4
-	.byte catfox_run_2,5
-	.byte catfox_run_3,3
+	.byte catfox_run_0,6
+	.byte catfox_run_1,8
+	.byte catfox_run_2,10
+	.byte catfox_run_3,6
 	.byte 0,0 ; goto frame 0
 
 cffallanim
@@ -359,72 +342,70 @@ mobtab
 	.word catmob
 	.word testmob
 	.word tm2
-	.word 0
+
+mobtabsz .byte 3
 
 ; --- mob routine state ---
 spritenum
 	.byte 0
 
-; -------- mob routines --------
-
-vicupdate
-; shift all active mobs into the vic
-; registers
+; --------- mob update ---------
+mobupdate
+; process actions, physics, and
+; animation for all active mobs.
+; can be called during screen draw.
+; changes are made visible by calling
+; vicupdate.
+; returns:
+;  a - # of active mobs (<=8,<=mobtabsz)
+;      which is # vic sprites needed
 	.block
-	lda #0
-	sta $d010 ; sprite hi x bits
-	sta $d015 ; sprite enable
-
-	; count live mobs (max 8)  
-	; look at hi bytes of mobtab
-	; entries (mob structs never on 
-	; zeropage)
-	ldx #1 ; hi byte of 1st entry
-countmobtab
-	lda mobtab,x
-	beq mobtabend ; hi byte eq 0
-	inx
-	inx
-	cpx #17
-	beq mobtabend
-	bne countmobtab
-
-mobtabend
-	; back to hi byte of last real
-	; entry (at 0 terminator now)
-	dex
-	dex
+	ldx #0
 	stx mobtabpos
 
-	; store count in spritenum
-	; /2 (word offset to count)
-	txa
-	lsr a
-	sta spritenum
-
+	; this loop counts up from 0
 updateloop
-	ldx mobtabpos
-	cpx #$ff
+	lda mobtabpos
+	cmp mobtabsz
 	beq done
-	lda mobtab,x
-	sta ptr0+1
-	dex
+	asl a ; *2 for word offset
+	tax
 	lda mobtab,x
 	sta ptr0
+	inx
+	lda mobtab,x
+	sta ptr0+1
+	jsr mobupdate1
+	inc mobtabpos
+	bne updateloop
+
+done	ldx mobtabpos ; TODO exclude disabled
 	dex
-	stx mobtabpos
-	jsr vicupdateone
-	dec spritenum
-	jmp updateloop
-	
-done	rts
+	txa
+	rts
 mobtabpos .byte 0
 
-vicupdateone
-; in: ptr0 - mob struct pointer
-;     spritenum - vic sprite number
-;     (call in desc order)
+mobupdate1
+	; --- custom action
 
+	; "jsr mobact" trampoline:
+	; load "jmp mobact" into r0,r3
+	; then jsr to that
+	ldy #mobact
+	lda (ptr0),y
+	sta r1
+	iny
+	lda (ptr0),y
+	sta r2
+	ora r1
+	beq skipact ; hi and low are 0
+
+	lda #$4c ; direct jmp opcode
+	sta r0
+	jsr r0
+skipact
+
+	; --- physics
 	; apply dx
 	clc
 	ldy #mobdxl
@@ -432,7 +413,6 @@ vicupdateone
 	ldy #mobxl
 	adc (ptr0),y
 	sta (ptr0),y
-	sta r0
 	ldy #mobdxh
 	lda (ptr0),y
 	ldy #mobxh
@@ -443,7 +423,6 @@ vicupdateone
 	lda #(0-3)
 savex
 	sta (ptr0),y
-	sta r1
 	
 	; apply dy
 	clc
@@ -452,7 +431,6 @@ savex
 	ldy #mobyl
 	adc (ptr0),y
 	sta (ptr0),y
-	sta r2
 	ldy #mobdyh
 	lda (ptr0),y
 	ldy #mobyh
@@ -463,81 +441,15 @@ savex
 	lda #(0-3)
 savey
 	sta (ptr0),y
-	sta r3
 
-	; calc pixel positions
-
-	; calc x pixel pos -> r1
-	; 16-bit shift 3 places left
-
-	; merge in x-offset of 24
-	; into high byte (24>>3 = 3)
-	; can ignore lo byte because
-	; xoffs is exactly 3 chars wide
-	; and hi byte counts chars
-	clc
-	lda r1
-	adc #3
-
-	; expand fixedpt pos to px in r1
-	clc
-	rol r0
-	rol a
-	rol r0
-	rol a
-	rol r0
-	rol a
-	sta r1
-
-	; x overflow to msb
-	rol $d010
-
-	; calc y pixel pos -> r3
-	; don't need fancy prescaled
-	; offset because we don't save
-	; the carry for y
-	lda r3
-	clc
-	rol r2
-	rol a
-	rol r2
-	rol a
-	rol r2
-	rol a
-
-	adc #29 ; sprite y offset
-	sta r3
-
-	; enable this sprite
-	sec
-	rol $d015
-
-	; pixel position to hw regs
-	lda spritenum
-	asl a ;for interleaved xy coords
-	tay
-
-	lda r1 ; x coord
-	sta $d000,y
-
-	lda r3 ; y coord
-	sta $d001,y
-
-	; set colour
-	ldy #mobcolr
-	lda (ptr0),y
-	ldy spritenum
-	sta $d027,y
-
-	; ---- repurposing r0-r4 ----
-
+	; --- animation
 	ldy #mobattl
 	lda (ptr0),y
 	sec
 	sbc #1
 	beq nextaframe
 	sta (ptr0),y
-	jmp showimg
+	jmp donealist
 
 nextaframe
 	; set animation frame
@@ -583,30 +495,155 @@ newimg
 	sta (ptr0),y
 	
 	; set frame ttl counter
-	ldy #mobattl
 	lda r1
+	ldy #mobattl
 	sta (ptr0),y
 
 	; update mobimg
-	ldy #mobimg
 	lda r0 ; new image num
+	ldy #mobimg
 	sta (ptr0),y
-	bne showimg2
 
-	; end of alist processing
+donealist ; end of alist processing
+	rts
+	.bend
 
-showimg
+; --------- vic update ---------
+vicupdate
+; shift all active mobs into the vic
+; registers.
+; no side effects on mob data.
+; call during VBL.
+	.block
+	lda #0
+	sta $d010 ; sprite hi x bits
+	sta $d015 ; sprite enable
+
+	; count live mobs (max 8)  
+	; and store that in spritenum
+	; TODO mechanism for disabling
+	;      mobs still in mobtab
+	; TODO take that count as arg
+	ldx mobtabsz
+	txa
+	asl a
+	sec
+	sbc #1
+	sta mobtabpos ; (count*2)-1
+
+	dex
+	stx spritenum ; count-1
+
+	; loop counts down from mobtabsz
+updateloop
+	ldx mobtabpos
+	cpx #$ff
+	beq done
+	lda mobtab,x
+	sta ptr0+1
+	dex
+	lda mobtab,x
+	sta ptr0
+	dex
+	stx mobtabpos
+	jsr vicupdate1
+	dec spritenum
+	jmp updateloop
+	
+done	rts
+mobtabpos .byte 0
+
+vicupdate1
+; in: ptr0 - mob struct pointer
+;     spritenum - vic sprite number
+;     (call in desc order)
+
+
+	; calc pixel positions
+
+	; calc x pixel pos -> r1
+	; 16-bit shift 3 places left
+
+	; merge in x-offset of 24
+	; into high byte (24>>3 = 3)
+	; can ignore lo byte because
+	; xoffs is exactly 3 chars wide
+	; and hi byte counts chars
+	ldy #mobxl
+	lda (ptr0),y
+	sta r0
+	ldy #mobxh
+	lda (ptr0),y
+	clc
+	adc #3
+
+	; expand fixedpt pos to px in r1
+	clc
+	rol r0
+	rol a
+	rol r0
+	rol a
+	rol r0
+	rol a
+	sta r1
+
+	; x overflow to msb
+	rol $d010
+
+	; calc y pixel pos -> r3
+	; don't need fancy prescaled
+	; offset because we don't save
+	; the carry for y
+	ldy #mobyl
+	lda (ptr0),y
+	sta r2
+	ldy #mobyh
+	lda (ptr0),y
+	clc
+	rol r2
+	rol a
+	rol r2
+	rol a
+	rol r2
+	rol a
+
+	adc #29 ; sprite y offset
+	sta r3
+
+	; enable this sprite
+	sec
+	rol $d015
+
+	; pixel position to hw regs
+	lda spritenum
+	asl a ;for interleaved xy coords
+	tay
+
+	lda r1 ; x coord
+	sta $d000,y
+
+	lda r3 ; y coord
+	sta $d001,y
+
+	; set colour
+	ldy #mobcolr
+	lda (ptr0),y
+	ldy spritenum
+	sta $d027,y
+
 	; set hw sprite to mobimg
 	; (possibly x-mirrored)
+; TODO move x-mirror to mobupdate
 	ldy #mobimg
 	lda (ptr0),y
-showimg2 tax
+	tax
 
 	; if going left, use flipped img
 	ldy #mobdxh
 	lda (ptr0),y
 	bpl noflip
 	txa
+	clc
 	adc #numsprites
 	tax
 
