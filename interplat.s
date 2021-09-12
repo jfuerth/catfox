@@ -13,6 +13,50 @@ r4=$fb
 ptr0=$fc
 ptr0h=$fd
 
+; mob struct
+mobxl=0
+mobxh=1
+mobdxl=2
+mobdxh=3
+mobyl=4
+mobyh=5
+mobdyl=6
+mobdyh=7
+mobcolr=8 ; bit 7 set: disabled
+          ; bit 6 set: x-mirrored
+mobimg=9
+mobalist=10 ; +11
+mobaframe=12
+mobattl=13 ; countdown current frame
+mobact=14 ; +15
+mobstructsz=16
+
+ifmobdis .segment
+	ldy #mobcolr
+	lda (ptr0),y
+	and #%10000000
+	bne @1
+	.endm
+
+ifmobxm	.macro
+	ldy #mobcolr
+	lda (ptr0),y
+	and #%01000000
+	bne @1
+	.endm
+
+setmobxm .macro
+	ldy #mobcolr
+	lda (ptr0),y
+	.ifne \1
+	ora #%01000000
+	.endif
+	.ifeq \0
+	and #%10111111
+	.endif
+	sta (ptr0),y
+	.endm
+
 add16	.macro
 	clc
 	lda \1
@@ -40,15 +84,19 @@ handleint
 	lda #$ff
 	sta $d019
 
+	lda mobcount
 	jsr vicupdate
 
 	inc $d020
 	jsr mobupdate
+	sta mobcount
 	dec $d020
 
 	dec $d020
 	jmp $ea31
 	
+mobcount .byte 0
+
 	.bend	
 
 playeract
@@ -278,7 +326,7 @@ install
 	lda #1
 	sta $d01a ; enable raster irq
 	
-	lda #249
+	lda #251
 	sta $d012 ; set raster line num
 
 	lda #$1b
@@ -313,24 +361,7 @@ cffallanim
 	.byte catfox_fall_1,2
 	.byte 0,0 ; goto frame 0
 
-; --------- mob structs ---------
-
-; mob struct
-mobxl=0
-mobxh=1
-mobdxl=2
-mobdxh=3
-mobyl=4
-mobyh=5
-mobdyl=6
-mobdyh=7
-mobcolr=8
-mobimg=9
-mobalist=10 ; +11
-mobaframe=12
-mobattl=13 ; countdown current frame
-mobact=14 ; +15
-mobstructsz=16
+; --------- mobs ---------
 
 ; --- mob structs
 catmob	.repeat mobstructsz,$00
@@ -362,6 +393,7 @@ mobupdate
 	.block
 	ldx #0
 	stx mobtabpos
+	stx activemobs
 
 	; this loop counts up from 0
 updateloop
@@ -375,15 +407,17 @@ updateloop
 	inx
 	lda mobtab,x
 	sta ptr0+1
+	#ifmobdis "skip"
+	inc activemobs
 	jsr mobupdate1
-	inc mobtabpos
-	bne updateloop
+skip	inc mobtabpos
+	bne updateloop ; always taken
 
-done	ldx mobtabpos ; TODO exclude disabled
-	dex
+done	ldx activemobs
 	txa
 	rts
 mobtabpos .byte 0
+activemobs .byte 0
 
 mobupdate1
 	; --- custom action
@@ -514,16 +548,17 @@ vicupdate
 ; registers.
 ; no side effects on mob data.
 ; call during VBL.
+; inputs:
+; a - count of live mobs
 	.block
-	lda #0
-	sta $d010 ; sprite hi x bits
-	sta $d015 ; sprite enable
 
-	; count live mobs (max 8)  
-	; and store that in spritenum
-	; TODO mechanism for disabling
-	;      mobs still in mobtab
-	; TODO take that count as arg
+	; store # live mobs in spritenum
+	; start at count-1 because it's
+	; a 0-based index
+	tax
+	dex
+	stx spritenum ; count-1
+
 	ldx mobtabsz
 	txa
 	asl a
@@ -531,8 +566,9 @@ vicupdate
 	sbc #1
 	sta mobtabpos ; (count*2)-1
 
-	dex
-	stx spritenum ; count-1
+	lda #0
+	sta $d010 ; sprite hi x bits
+	sta $d015 ; sprite enable
 
 	; loop counts down from mobtabsz
 updateloop
@@ -546,6 +582,7 @@ updateloop
 	sta ptr0
 	dex
 	stx mobtabpos
+	#ifmobdis "updateloop"
 	jsr vicupdate1
 	dec spritenum
 	jmp updateloop
