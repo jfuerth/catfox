@@ -38,11 +38,16 @@ ifmobdis .segment
 	bne @1
 	.endm
 
-ifmobxm	.macro
+; test if current mob is x-mirrored
+; jump to label if mob not x-mirrored:
+;   #ifmobxm "eq","label"
+; jump to label if mob is x-mirrored:
+;   #ifmobxm "ne","label"
+ifmobxm	.segment
 	ldy #mobcolr
 	lda (ptr0),y
 	and #%01000000
-	bne @1
+	b@1 @2
 	.endm
 
 setmobxm .macro
@@ -51,7 +56,7 @@ setmobxm .macro
 	.ifne \1
 	ora #%01000000
 	.endif
-	.ifeq \0
+	.ifeq \1
 	and #%10111111
 	.endif
 	sta (ptr0),y
@@ -122,6 +127,7 @@ ckleft	lda #%00000100
 	sta catmob+mobdxl
 	lda #>($ffff-wlkspd)
 	sta catmob+mobdxh
+	#setmobxm 1
 done
 	.bend
 
@@ -134,6 +140,7 @@ ckright	lda #%00001000
 	sta catmob+mobdxl
 	lda #>wlkspd
 	sta catmob+mobdxh
+	#setmobxm 0
 done
 	.bend
 
@@ -669,23 +676,16 @@ vicupdate1
 	sta $d027,y
 
 	; set hw sprite to mobimg
-	; (possibly x-mirrored)
-; TODO move x-mirror to mobupdate
 	ldy #mobimg
 	lda (ptr0),y
 	tax
-
-	; if going left, use flipped img
-	ldy #mobdxh
-	lda (ptr0),y
-	bpl noflip
-	txa
+	#ifmobxm "eq","noflip"
 	clc
+	txa ; macro wiped a
 	adc #numsprites
 	tax
-
-noflip	ldy spritenum
-	txa
+noflip	txa
+	ldy spritenum
 	sta spriteimg,y
 
 	rts
