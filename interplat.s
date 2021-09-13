@@ -76,6 +76,7 @@ add16	.macro
 wlkspd=30
 jmpspd=50
 sitdelay=60
+gravity=2
 
 ; --------- start of code ---------
 *=$c000
@@ -184,7 +185,7 @@ donejoy
 	ora (ptr0),y
 	bne walk
 
-; --------- actions ------------
+; --------- player actions ------------
 stand
 	lda #0
 	sta catmob+mobdxl
@@ -200,7 +201,7 @@ fall
 
 	lda catmob+mobdyl
 	clc
-	adc #2 ; gravity
+	adc #gravity
 	sta catmob+mobdyl
 	lda catmob+mobdyh
 	adc #0
@@ -213,6 +214,75 @@ walk
 
 done
 	rts
+	.bend
+
+; ---- mob action: stay on platform
+platstayact
+	.block
+	ldy #mobxh
+	lda (ptr0),y
+	sta r0
+	tax
+
+	ldy #mobyh
+	lda (ptr0),y
+	sta r1
+	tay
+
+	inx ; look below middle
+	jsr getsc
+
+	; if nothing under: fall
+	cmp #$80
+	bcs nofall
+	; TODO #ifalist "cffallanim" "done"
+	; TODO #setalist "cffallanim"
+	ldy #mobdyl
+	lda (ptr0),y
+	clc
+	adc #gravity
+	sta (ptr0),y
+	iny
+	lda (ptr0),y
+	adc #0
+	sta (ptr0),y
+	jmp done
+nofall
+	; stop dy
+	ldy #mobdyl
+	lda #0
+	sta (ptr0),y
+	iny
+	sta (ptr0),y
+
+	; if nothing ahead: reverse dx
+	ldx r0 ; xh
+	ldy #mobdxh
+	lda (ptr0),y
+	bmi checkfall
+	inx ; look below right side
+	inx
+checkfall ldy r1
+	jsr getsc
+	cmp #$80
+	bcs done
+; no platform ahead: negate mobdx
+	lda #0
+	sec
+	ldy #mobdxl
+	sbc (ptr0),y
+	sta (ptr0),y
+	iny
+	lda #0
+	sbc (ptr0),y
+	sta (ptr0),y
+
+	bmi faceleft
+	#setmobxm 0
+	jmp done
+faceleft
+	#setmobxm 1
+done	rts
 	.bend
 
 getsc
@@ -292,6 +362,16 @@ init
 
 	lda #2
 	sta testmob+mobcolr
+
+	lda #wlkspd
+	sta testmob+mobdxl
+	lda #0
+	sta testmob+mobdxh
+
+	lda #<platstayact
+	sta testmob+mobact
+	lda #>platstayact
+	sta testmob+mobact+1
 	
 	; tm2 setup
 	lda #15
