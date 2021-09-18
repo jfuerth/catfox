@@ -315,6 +315,12 @@ faceleft
 done	rts
 	.bend
 
+; ---- mob action: fly back and forth
+lrflyact
+	.block
+	; TODO fill this in
+	.bend
+
 getsc
 ; gets screencode at xr,yr -> acc
 ; trashes r3&r4
@@ -403,21 +409,40 @@ init
 	lda #>platstayact
 	sta testmob+mobact+1
 	
-	; tm2 setup
-	lda #15
-	sta tm2+mobxh
-	sta tm2+mobyh
+tminit	.macro
+	lda #\2
+	sta tm@1+mobxh
+	lda #\3
+	sta tm@1+mobyh
 	lda #<cfjumpanim
-	sta tm2+mobalist
+	sta tm@1+mobalist
 	lda #>cfjumpanim
-	sta tm2+mobalist+1
+	sta tm@1+mobalist+1
 	lda #0
-	sta tm2+mobaframe
+	sta tm@1+mobaframe
 	lda #1
-	sta tm2+mobattl
+	sta tm@1+mobattl
 
-	lda #3
-	sta tm2+mobcolr
+	lda #\4
+	sta tm@1+mobcolr
+
+	lda #(wlkspd+(\4*4))
+	sta tm@1+mobdxl
+	lda #0
+	sta tm@1+mobdxh
+
+	lda #<platstayact
+	sta tm@1+mobact
+	lda #>platstayact
+	sta tm@1+mobact+1
+	.endm
+
+	#tminit "2",4,4,3
+	#tminit "3",8,4,4
+	#tminit "4",12,4,9
+	#tminit "5",16,4,6
+	#tminit "6",20,4,7
+	#tminit "7",21,4,8
 	
 	; mirror sprite images
 	lda #numsprites
@@ -484,14 +509,24 @@ cffallanim
 catmob	.repeat mobstructsz,$00
 testmob	.repeat mobstructsz,$00
 tm2	.repeat mobstructsz,$00
+tm3	.repeat mobstructsz,$00
+tm4	.repeat mobstructsz,$00
+tm5	.repeat mobstructsz,$00
+tm6	.repeat mobstructsz,$00
+tm7	.repeat mobstructsz,$00
 
 ; --- mob pointers
 mobtab
 	.word catmob
 	.word testmob
 	.word tm2
+	.word tm3
+	.word tm4
+	.word tm5
+	.word tm6
+	.word tm7
 
-mobtabsz .byte 3
+mobtabsz .byte 8
 
 ; --- mob routine state ---
 spritenum
