@@ -133,8 +133,20 @@ mobcount .byte 0
 
 playeract
 .block
-	; jsr readjoy
-	lda $dc00
+	; check enemy collision
+	lda $d01e
+	and #%00000001
+	beq nocoll
+	ldx catmob+mobcolr
+	inx
+	txa
+	and #$0f
+	sta catmob+mobcolr
+	jmp readjoy
+nocoll	lda #1
+	sta catmob+mobcolr
+
+readjoy	lda $dc00
 	and #%00011111
 	cmp #%00011111
 	bne notidle
@@ -211,7 +223,6 @@ donejoy
 	ora (ptr0),y
 	bne walk
 
-; --------- player actions ------------
 stand
 	lda #0
 	sta catmob+mobdxl
