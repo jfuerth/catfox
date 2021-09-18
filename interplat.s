@@ -62,6 +62,32 @@ setmobxm .macro
 	sta (ptr0),y
 	.endm
 
+; test if current mob's alist is same
+; as given alist
+; jump to given label if it is
+ifalist	.segment
+	ldy #mobalist
+	lda (ptr0),y
+	cmp #<@1
+	bne *+7 ; perf: skip hi byte?
+	iny
+	lda (ptr0),y
+	cmp #>@1
+	beq @2
+	.endm
+
+setalist .segment
+	ldy #mobalist
+	lda #<@1
+	sta (ptr0),y
+	iny
+	lda #>@1
+	sta (ptr0),y
+	ldy #mobaframe
+	lda #0
+	sta (ptr0),y
+	.endm
+
 add16	.macro
 	clc
 	lda \1
@@ -235,8 +261,6 @@ platstayact
 	; if nothing under: fall
 	cmp #$80
 	bcs nofall
-	; TODO #ifalist "cffallanim" "done"
-	; TODO #setalist "cffallanim"
 	ldy #mobdyl
 	lda (ptr0),y
 	clc
@@ -246,6 +270,8 @@ platstayact
 	lda (ptr0),y
 	adc #0
 	sta (ptr0),y
+	#ifalist "cffallanim","done"
+	#setalist "cffallanim"
 	jmp done
 nofall
 	; stop dy
@@ -254,6 +280,10 @@ nofall
 	sta (ptr0),y
 	iny
 	sta (ptr0),y
+
+	#ifalist "cfwalkanim","contwalk"
+	#setalist "cfwalkanim"
+contwalk
 
 	; if nothing ahead: reverse dx
 	ldx r0 ; xh
