@@ -1,9 +1,12 @@
+CFLAGS=-g
+
 default: interplat.prg catsprites.prg
 
 interplat.prg: interplat.s catfox_spritenums.s
 
-%.prg: %.s
+%.prg: %.s tmplab2vice
 	tmpx -i $< -o $@ -l $@.list
+	cat $@.list | ./tmplab2vice > $@.labels
 
 catfox_spritenums.s: catsprites.s
 	# start at sprite 128 ($2000), just after ROM chars

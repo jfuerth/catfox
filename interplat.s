@@ -31,6 +31,51 @@ mobattl=13 ; countdown current frame
 mobact=14 ; +15
 mobstructsz=16
 
+; load 8-bit mob prop into a
+; #moblda "colr"
+; a <- prop value
+; y <- prop offset
+moblda	.macro
+	ldy #mob@1
+	lda (ptr0),y
+	.endm
+
+; store 8-bit mob prop from a
+; #mobsta "colr"
+; a -> prop value
+; y <- prop offset
+mobsta	.macro
+	ldy #mob@1
+	sta (ptr0),y
+	.endm
+
+; load 16-bit mob prop into a and x
+; a <- low byte
+; x <- hi byte
+; y <- prop offset
+mobldax	.macro
+	ldy #(mob@1+1)
+	lda (ptr0),y
+	tax
+	dey
+	lda (ptr0),y
+	.endm
+
+; store 16-bit mob prop from a and x
+; a -> low byte
+; x -> hi byte
+; y <- prop offset
+mobstax	.macro
+	ldy #(mob@1)
+	sta (ptr0),y
+	iny
+	txa
+	sta (ptr0),y
+	.endm
+
+; test if current mob is disabled
+; jump to given label if disabled
+;   #ifmobdis "isdisabled"
 ifmobdis .segment
 	ldy #mobcolr
 	lda (ptr0),y
@@ -50,6 +95,9 @@ ifmobxm	.segment
 	b@1 @2
 	.endm
 
+; set mob x-mirror to given arg
+;   #setmobxm 1  - facing left
+;   #setmobxm 0  - facing right
 setmobxm .macro
 	ldy #mobcolr
 	lda (ptr0),y
@@ -76,16 +124,16 @@ ifalist	.segment
 	beq @2
 	.endm
 
+; set current mob's anim list
+; and reset to frame 0
 setalist .segment
-	ldy #mobalist
 	lda #<@1
-	sta (ptr0),y
-	iny
-	lda #>@1
-	sta (ptr0),y
-	ldy #mobaframe
+	ldx #>@1
+	#mobstax "alist"
 	lda #0
-	sta (ptr0),y
+	#mobsta "aframe"
+	lda #1
+	#mobsta "attl"
 	.endm
 
 add16	.macro
@@ -100,9 +148,10 @@ add16	.macro
 
 ; ----- settings ------
 wlkspd=30
-jmpspd=50
+jumpspd=70 ; superjump is 100
 sitdelay=60
 gravity=2
+friction=1
 
 ; --------- start of code ---------
 *=$c000
@@ -142,114 +191,197 @@ playeract
 	txa
 	and #$0f
 	sta catmob+mobcolr
-	jmp readjoy
+	jmp dostates
 nocoll	lda #1
 	sta catmob+mobcolr
 
-readjoy	lda $dc00
-	and #%00011111
-	cmp #%00011111
-	bne notidle
+up=   %00000001
+down= %00000010
+left= %00000100
+right=%00001000
+fire= %00010000
 
-	lda #0
-	sta catmob+mobdxl
-	sta catmob+mobdxh
-	jmp donejoy ; rts
+; process inputs and bg interactions
+; based on current state
 
-notidle
+dostates
+	#ifalist "cfidleanim","isidle0"
+	#ifalist "cfwalkanim","iswalk0"
+	#ifalist "cfjumpanim","isjump"
+	#ifalist "cffallanim","isfall"
+	brk ; TODO break vector
+
+isidle0	jmp isidle
+iswalk0	jmp iswalk
+
+isjump	; ------------
 	.block
-ckleft	lda #%00000100
-	bit $dc00
-	bne done
-
-	lda #<($ffff-wlkspd)
-	sta catmob+mobdxl
-	lda #>($ffff-wlkspd)
-	sta catmob+mobdxh
-	#setmobxm 1
-done
+	jsr applygravity
+	; if +ve dy, we are falling
+	#moblda "dyh"
+	bmi nofall
+	#setalist "cffallanim"
+nofall
+	jmp donestates
 	.bend
 
+isfall	; ------------
 	.block
-ckright	lda #%00001000
-	bit $dc00
-	bne done
-
-	lda #<wlkspd
-	sta catmob+mobdxl
-	lda #>wlkspd
-	sta catmob+mobdxh
-	#setmobxm 0
-done
-	.bend
-
-	.block
-ckfire	lda #%00010000
-	bit $dc00
-	bne done
-
-	lda #<($ffff-jmpspd)
-	sta catmob+mobdyl
-	lda #>($ffff-jmpspd)
-	sta catmob+mobdyh
-done
-	.bend
-donejoy
+	jsr applygravity
 
 	; check if mob is on a platform
-	ldy #mobxh
-	lda (ptr0),y
+	#moblda "xh"
 	tax
 	inx ; centre hitbox on sprite
 
-	ldy #mobyh
-	lda (ptr0),y
+	#moblda "yh"
 	tay
 
 	jsr getsc ; trashes r3,r4
 
 	cmp #$80
-	bcc fall
+	bcc done ; not on a platform
 
-	; check if not moving
-	lda #<catmob
-	sta ptr0
-	lda #>catmob
-	sta ptr0h
-
-	ldy #mobdxh
-	lda (ptr0),y
-	ldy #mobdxl
-	ora (ptr0),y
-	bne walk
-
-stand
+	; stop falling
 	lda #0
-	sta catmob+mobdxl
-	sta catmob+mobdxh
+	ldx #0
+	#mobstax "dyl"
+	#mobsta "yl" ; stay on top
+
+	#setalist "cfidleanim"
+done
+	jmp donestates
+	.bend
+
+isidle	; ------------
+	; check if started moving
+	#moblda "dxh"
+	sta r1
+	#moblda "dxl"
+	ora r1
+	beq idlewalk
+	#setalist "cfwalkanim"
+	jmp idlewalk
+
+iswalk	; --------------
+	; check if still moving
+	#moblda "dxh"
+	sta r1
+	#moblda "dxl"
+	ora r1
+	bne idlewalk
+	#setalist "cfidleanim"
+
+; idle and walk are the same from here
+idlewalk
+
+	; friction: pull dx toward 0
+	.block
+	#moblda "dxh"
+	bmi goingleft
+goingright
+	#moblda "dxl"
+	beq donefriction ; not moving
+	sec
+	sbc #friction
+	sta (ptr0),y
+	#moblda "dxh"
+	sbc #0
+	sta (ptr0),y
+;TODO clamp to 0
+	jmp donefriction
+
+goingleft
+	#moblda "dxl"
+	clc
+	adc #friction
+	sta (ptr0),y
+	#moblda "dxh"
+	adc #0
+	sta (ptr0),y
+;TODO clamp to 0
+	jmp donefriction
+
+donefriction
+	.bend
+
+	.block
+ckfire	lda #fire
+	bit $dc00
+	bne done
+
+	lda #<($ffff-jumpspd)
 	sta catmob+mobdyl
+	lda #>($ffff-jumpspd)
 	sta catmob+mobdyh
-	sta catmob+mobyl
+	
+	#setalist "cfjumpanim"
+done
+	.bend
 
-	jmp done
+	.block
+	; check if mob is on a platform
 
-fall
-	inc $d001
+	#moblda "xh"
+	tax
+	inx ; centre hitbox on sprite
 
-	lda catmob+mobdyl
+	#moblda "yh"
+	tay
+
+	jsr getsc ; trashes r3,r4
+
+	cmp #$80
+	bcs done ; still on a platform
+
+	#setalist "cffallanim"
+done
+	.bend
+	jmp donestates
+
+donestates
+	
+; all states:
+; apply joystick l/r and x-mirroring
+	.block
+ckleft	lda #left
+	bit $dc00
+	bne done
+
+	lda #<($ffff-wlkspd)
+	ldx #>($ffff-wlkspd)
+	#mobstax "dxl"
+	#setmobxm 1
+done
+	.bend
+
+	.block
+ckright	lda #right
+	bit $dc00
+	bne done
+
+	lda #<wlkspd
+	ldx #>wlkspd
+	#mobstax "dxl"
+	#setmobxm 0
+done
+	.bend
+
+	rts
+	.bend
+
+; apply pull of gravity to current mob
+; ptr0 - pointer to current mob
+; trashes a and y
+applygravity
+	.block
+	#moblda "dyl"
 	clc
 	adc #gravity
-	sta catmob+mobdyl
-	lda catmob+mobdyh
+	sta (ptr0),y
+	#moblda "dyh"
 	adc #0
-	sta catmob+mobdyh
-
-	jmp done
-
-walk	
-	jmp done
-
-done
+	sta (ptr0),y
 	rts
 	.bend
 
@@ -272,17 +404,10 @@ platstayact
 	; if nothing under: fall
 	cmp #$80
 	bcs nofall
-	ldy #mobdyl
-	lda (ptr0),y
-	clc
-	adc #gravity
-	sta (ptr0),y
-	iny
-	lda (ptr0),y
-	adc #0
-	sta (ptr0),y
-	#ifalist "cffallanim","done"
+	jsr applygravity
+	#ifalist "cffallanim","falling"
 	#setalist "cffallanim"
+falling
 	jmp done
 nofall
 	; stop dy
@@ -498,8 +623,8 @@ cfidleanim
 	.byte 0,4 ; stay on last
 
 cfjumpanim
-	.byte catfox_jump_0,2
-	.byte catfox_jump_1,0
+	.byte catfox_jump_0,10
+	.byte catfox_jump_1,10
 	.byte 0,1
 
 cfwalkanim
