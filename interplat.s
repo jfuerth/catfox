@@ -5,13 +5,13 @@ screen=$0400
 spriteimg=screen+1024-8
 
 ; temporary vars and pointers
-r0=$f7
-r1=$f8
-r2=$f9
-r3=$fa
-r4=$fb
-ptr0=$fc
-ptr0h=$fd
+r0=$02
+r1=$03
+r2=$04
+r3=$05
+r4=$06
+ptr0=$fd
+ptr0h=$fe
 
 ; mob struct
 mobxl=0
@@ -492,6 +492,10 @@ line    .var line+40
 
 ; ------- one time setup --------
 init
+	ldx #0
+	ldy #0
+	jsr loadscr
+
 	; catfox mob setup
 	lda #1
 	sta catmob+mobxh
@@ -711,20 +715,18 @@ mobupdate1
 	; --- custom action
 
 	; "jsr mobact" trampoline:
-	; load "jmp mobact" into r0,r3
-	; then jsr to that
+	; jsr to mob's custom routine
+	; unless routine is $0000
 	ldy #mobact
 	lda (ptr0),y
-	sta r1
+	sta actjsr+1
 	iny
 	lda (ptr0),y
-	sta r2
-	ora r1
+	sta actjsr+2
+	ora actjsr+1
 	beq skipact ; hi and low are 0
 
-	lda #$4c ; direct jmp opcode
-	sta r0
-	jsr r0
+actjsr	jsr $ffff ; selfmod
 skipact
 
 	; --- physics
@@ -1057,4 +1059,181 @@ dstaddr	sta $ffff,x ; addr set by code
 	rts
 	.bend
 
+; ---------- Screen Loader ---------
+scfnam	.text "scxxyy" ; x and y get modified
+hexchr	.text "0123456789abcdef"
 
+loadscr
+; loads screen at x,y
+	.block
+SETNAM=$ffbd
+SETLFS=$ffba
+OPEN=$ffc0
+CHKIN=$ffc6
+CHRIN=$ffcf
+CLOSE=$ffc3
+CLRCHN=$ffcc
+
+	stx r0
+	sty r1
+
+	; x high nybble
+	lda r0
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	tax
+	lda hexchr,x
+	sta scfnam+2
+
+	; x low nybble
+	lda r0
+	and #$0f
+	tax
+	lda hexchr,x
+	sta scfnam+3
+
+	; y high nybble
+	lda r1
+	lsr a
+	lsr a
+	lsr a
+	lsr a
+	tax
+	lda hexchr,x
+	sta scfnam+4
+
+	; y low nybble
+	lda r1
+	and #$0f
+	lda hexchr,x
+	sta scfnam+5
+	
+	lda #6 ; filename length
+	ldx #<scfnam
+	ldy #>scfnam
+	jsr SETNAM
+
+	lda #2
+	ldx $ba  ; current device
+	bne devok
+	ldx #8   ; default drive 8
+	stx $ba
+devok	ldy #2   ; secondary addr
+	jsr SETLFS ; 2,(ba),2
+
+	jsr OPEN
+	bcs operr
+
+	; TODO read error channel
+	; (for file not found)
+
+	ldx #2
+	jsr CHKIN
+
+	; skip load address
+	jsr CHRIN
+	jsr CHRIN
+
+	jsr decrunch
+
+	and #$40 ; eof
+	beq rderr
+
+close	lda #2
+	jsr CLOSE
+	jsr CLRCHN
+	rts
+
+printst
+	.block
+	lda #0
+	tax
+	tay
+	jsr SETNAM
+	
+	lda #15
+	ldx $ba
+	ldy #15
+	jsr SETLFS ; 15,(ba),15
+
+	jsr OPEN
+
+	ldx #15
+	jsr CHKIN
+
+	ldx #0
+loop	jsr $ffb7  ; READST
+	bne eof
+	jsr $ffcf
+	sta screen,x
+	inx
+	bne loop
+
+eof	lda #15
+	jsr CLOSE
+	jsr CLRCHN ;TODO restore file 2?
+	rts
+	.bend
+
+; handle error in open (code in a)
+operr	jsr printst
+	ldx #2
+	stx $d021
+	jmp * ; TODO recover
+	jmp close
+
+; handle error in read
+rderr	jsr printst
+	ldx #3
+	stx $d021
+	jmp * ; TODO recover
+	jmp close
+
+decrunch
+; read bytes from open file and decode
+; to screen
+	lda #<screen
+	sta ptr0
+	lda #>screen
+	sta ptr0+1
+
+loop	jsr $ffb7 ; READST
+	bne eof
+	jsr CHRIN
+	cmp #$ff
+	beq dorun
+
+dochar	ldy #0
+	sta (ptr0),y
+	iny ; 1 screen char printed
+	bne next
+
+dorun	jsr CHRIN
+	tay ; loop count
+	tax ; loop count backup
+	jsr CHRIN
+	; char in a
+runlp	dey
+	sta (ptr0),y
+	bne runlp
+
+	; restore count for next
+	txa
+	tay
+
+next	; ptr0 += y
+	clc
+	tya
+	adc ptr0
+	sta ptr0
+	lda #0
+	adc ptr0+1
+	sta ptr0+1
+
+	jmp loop
+	
+eof	rts
+
+	.bend
