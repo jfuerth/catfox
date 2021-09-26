@@ -147,7 +147,7 @@ add16	.macro
 	.endm
 
 ; ----- settings ------
-wlkspd=30
+wlkspd=40
 jumpspd=70 ; superjump is 100
 sitdelay=60
 gravity=2
@@ -196,12 +196,18 @@ playeract
 	and #%00000001
 	beq nocoll
 	ldx catmob+mobcolr
+	txa
+	and #$f0
+	sta r0 ; preserve flags
 	inx
 	txa
 	and #$0f
+	ora r0 ; mix in flags
 	sta catmob+mobcolr
 	jmp dostates
-nocoll	lda #1
+nocoll	lda catmob+mobcolr
+	and #$f0
+	ora #1
 	sta catmob+mobcolr
 
 	; check for edge of screen
