@@ -165,6 +165,10 @@ handleint
 	lda #$ff
 	sta $d019
 
+	; skip mobs if loading new scr
+	jsr chkneedload
+	bcs doneint
+
 	lda mobcount
 	jsr vicupdate
 
@@ -173,12 +177,17 @@ handleint
 	sta mobcount
 	dec $d020
 
-	dec $d020
+doneint	dec $d020
 	jmp $ea31
 	
 mobcount .byte 0
-
 	.bend	
+
+; ------ Global vars ------
+wantscr	.word $0000
+havescr .word $ffff
+; PERF: move to ZP if not returning
+;       to BASIC
 
 playeract
 .block
@@ -194,6 +203,45 @@ playeract
 	jmp dostates
 nocoll	lda #1
 	sta catmob+mobcolr
+
+	; check for edge of screen
+	#mobldax "xl"
+	cpx #0
+	beq scrleft
+	cpx #38
+	beq scrright
+
+	; TODO up/down
+
+	jmp dostates
+
+scrleft
+	; dec x unless at left edge
+	ldx wantscr
+	beq donescr
+	dex
+	stx wantscr
+
+	; move player to rhs
+	lda #$ff
+	ldx #37
+	#mobstax "xl"
+	bne donescr ; always
+	
+scrright
+	; inc x unless at right edge
+	ldx wantscr
+	inx
+	beq donescr
+	stx wantscr
+
+	; move player to lhs
+	lda #0
+	ldx #1
+	#mobstax "xl"
+	bne donescr ; always
+	
+donescr
 
 up=   %00000001
 down= %00000010
@@ -492,9 +540,14 @@ line    .var line+40
 
 ; ------- one time setup --------
 init
-	ldx #0
-	ldy #0
-	jsr loadscr
+	; force screen load at startup
+	lda #0
+	sta wantscr
+	sta wantscr+1
+
+	lda #$ff
+	sta havescr
+	sta havescr+1
 
 	; catfox mob setup
 	lda #1
@@ -615,7 +668,50 @@ install
 	sta $d011 ; clear 9th bit
 
 	cli
+
+; ------- done init
+; the CPU spends its non-interrupt
+; time in this loop, checking if we
+; need to load a new screen
+; and loading it if so.
+loadloop
+	sei
+	jsr chkneedload
+	bcs loadnow
+	cli
+	jmp loadloop
+	
+loadnow	jsr loadscr
+
+	sei
+	ldx wantscr
+	ldy wantscr+1
+	stx havescr
+	sty havescr+1
+	cli
+
+	jmp loadloop
+
+chkneedload
+; checks if havescr != wantscr
+; sets carry if they are different
+; X <- lo byte of wantscr
+; Y <- hi byte of wantscr
+; C <- 1:have!=want; 0:have==want
+	.block
+	ldx wantscr
+	ldy wantscr+1
+	cpx havescr
+	bne differ
+	cpy havescr+1
+	bne differ
+	clc
 	rts
+
+differ	sec
+	rts
+	.bend
+	
 
 ; --------- animation ---------
 cfidleanim
@@ -730,7 +826,7 @@ actjsr	jsr $ffff ; selfmod
 skipact
 
 	; --- physics
-	; apply dx
+; apply dx
 	clc
 	ldy #mobdxl
 	lda (ptr0),y
@@ -741,14 +837,9 @@ skipact
 	lda (ptr0),y
 	ldy #mobxh
 	adc (ptr0),y
-
-	cmp #40 ; check for wrap
-	bmi savex
-	lda #(0-3)
-savex
 	sta (ptr0),y
 	
-	; apply dy
+; apply dy
 	clc
 	ldy #mobdyl
 	lda (ptr0),y
@@ -759,11 +850,6 @@ savex
 	lda (ptr0),y
 	ldy #mobyh
 	adc (ptr0),y
-
-	cmp #26 ; check for wrap
-	bmi savey
-	lda #(0-3)
-savey
 	sta (ptr0),y
 
 	; --- animation
