@@ -179,11 +179,10 @@ handleint
 
 doneint	dec $d020
 	jmp $ea31
-	
-mobcount .byte 0
 	.bend	
 
-; ------ Global vars ------
+; ------ global vars ------
+mobcount .byte 0
 wantscr	.word $0000
 havescr .word $ffff
 ; PERF: move to ZP if not returning
@@ -546,12 +545,14 @@ line    .var line+40
 
 ; ------- one time setup --------
 init
-	; force screen load at startup
+	; reset globals
+	; (in case of restart)
 	lda #0
+	sta mobcount
 	sta wantscr
 	sta wantscr+1
 
-	lda #$ff
+	lda #$ff ; diff from wantscr
 	sta havescr
 	sta havescr+1
 
@@ -938,6 +939,7 @@ vicupdate
 	; start at count-1 because it's
 	; a 0-based index
 	tax
+	beq done ; 0 active mobs
 	dex
 	stx spritenum ; count-1
 
