@@ -1171,6 +1171,9 @@ CLRCHN=$ffcc
 	stx r0
 	sty r1
 
+	lda #0
+	sta $d015 ; disable all sprites
+
 	; x high nybble
 	lda r0
 	lsr a
