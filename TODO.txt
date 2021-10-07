@@ -1,0 +1,52 @@
+To do:
+- save and load colour ram
+- screen editing UI with keyboard (and/or joy1?)
+  - copy and paste rectangular regions
+  - extension: saved "brushes" of horizontal or vertical runs?
+  - character palette
+  - switch modes between design and play
+  - save screen
+  - warp to screen
+  - load screen to current (eg. copy whole screen here)
+- save and load mob structs (even behaviours in special cases)
+
+Later:
+- "irq loader" that can pre-fetch data for nearby screens into ram (don't decompress)
+- remember which mobs are dead/disabled when we go back to a screen
+
+Done:
+- call anim and movement routines during visible raster lines (save vbl for vic updates)
+Movement system
+
+1. add movement processing pointer to mob struct
+2. call movement processing routine with mob ptr in ptr0
+3. do joystick and gravity processing in catfox update routine
+4. gravity processing should be a subroutine because all non-flying mobs need it
+4. implement simple "red koopa" AI for red catfox mob
+
+Bad ideas:
+
+- efficiency idea: copy mob struct to zeropage before calling anim and movement routines
+  overhead of attribute access using indexed indirect:
+   ldy <imm>          2
+        lda (<ind>),y 5
+   TOTAL                7 cycles
+  overhead of ZP attribute access
+        lda <zp>      3
+   TOTAL                3 cycles
+                      = 4 cycles cheaper
+  Cost of copy:
+   cplp lda <abs>,x   4
+        sta <zp>,x    4
+        dex           2
+        bne cplp      3
+   TOTAL                13 * mobstructsz (16) * 2 (to copy back)
+                      = 416 cycles
+  Break-even is 104 attribute reads/writes during update
+  Unrolled copy:
+        lda <abs+0>   4
+        sta <zp+0>    3
+                        7 * mobstructsz (16) * 2 -- not practical because address is in many places
+  -> better idea is to use table per attribute, indexed by mob. then can access with
+        lda <abs>,x   4  (bonus: abs,y works too)
+                      = 3 cycles cheaper

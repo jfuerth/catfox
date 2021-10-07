@@ -1154,25 +1154,33 @@ dstaddr	sta $ffff,x ; addr set by code
 	.bend
 
 ; ---------- Screen Loader ---------
-scfnam	.text "scxxyy" ; x and y get modified
-hexchr	.text "0123456789abcdef"
 
-loadscr
-; loads screen at x,y
-	.block
 SETNAM=$ffbd
 SETLFS=$ffba
 OPEN=$ffc0
 CHKIN=$ffc6
+CHKOUT=$ffc9
 CHRIN=$ffcf
+CHROUT=$ffd2
 CLOSE=$ffc3
 CLRCHN=$ffcc
+READST=$ffb7
 
+openscrfile
+; call kernal SETNAM,SETLFS,OPEN
+; with filename of
+; screen at world coord r0,r1
+; x -> world x-coord of screen
+; y -> world y-coord of screen
+; a -> logical file number
+; r0 <- world x-coord of screen
+; r1 <- world y-coord of screen
+; c  <- set if error
+	.block
 	stx r0
 	sty r1
-
-	lda #0
-	sta $d015 ; disable all sprites
+	pha ; remember filenum
+	php ; remember rd/wr
 
 	; x high nybble
 	lda r0
@@ -1182,14 +1190,14 @@ CLRCHN=$ffcc
 	lsr a
 	tax
 	lda hexchr,x
-	sta scfnam+2
+	sta scfnam+3
 
 	; x low nybble
 	lda r0
 	and #$0f
 	tax
 	lda hexchr,x
-	sta scfnam+3
+	sta scfnam+4
 
 	; y high nybble
 	lda r1
@@ -1199,41 +1207,66 @@ CLRCHN=$ffcc
 	lsr a
 	tax
 	lda hexchr,x
-	sta scfnam+4
+	sta scfnam+5
 
 	; y low nybble
 	lda r1
 	and #$0f
 	lda hexchr,x
-	sta scfnam+5
+	sta scfnam+6
 	
-	lda #6 ; filename length
+	; scfnam has correct coords
+	; now send to SETNAM based on
+	; read or write
+	plp
+	bcs write
+	lda #6 ; length without @,u,w
+	ldx #<(scfnam+1)
+	ldy #>(scfnam+1)
+	jmp sngo
+
+write	lda #11 ; full length
 	ldx #<scfnam
 	ldy #>scfnam
-	jsr SETNAM
+sngo	jsr SETNAM
 
-	lda #2
+	; SETLFS
+	pla      ; file num
 	ldx $ba  ; current device
 	bne devok
 	ldx #8   ; default drive 8
 	stx $ba
-devok	ldy #2   ; secondary addr
-	jsr SETLFS ; 2,(ba),2
+devok	tay      ; secondary addr
+	jsr SETLFS ; a,(ba),a
 
 	jsr OPEN
-	bcs operr
 
-	; TODO read error channel
-	; (for file not found)
+	rts
+
+scfnam	.text "@scxxyy,u,w" ; xxyy gets modified
+hexchr	.text "0123456789abcdef"
+	.bend
+
+loadscr
+; loads screen at world coord x,y
+	.block
+	lda #0
+	sta $d015 ; disable all sprites
+
+	; x and y were set by caller
+	lda #2 ; logical file num
+	clc    ; open for read
+	jsr openscrfile
+	bcs operr
 
 	ldx #2
 	jsr CHKIN
 
-	; skip load address
-	jsr CHRIN
-	jsr CHRIN
-
+nextchunk
 	jsr decrunch
+
+	cmp #0 ; no errors, not eof
+	beq nextchunk
 
 	and #$40 ; eof
 	beq rderr
@@ -1243,7 +1276,73 @@ close	lda #2
 	jsr CLRCHN
 	rts
 
+; handle error in open (code in a)
+operr	jsr printst
+	ldx #2
+	stx $d021
+	jsr close
+	jmp * ; TODO recover
+
+; handle error in read
+rderr	jsr printst
+	ldx #3
+	stx $d021
+	jsr close
+	jmp * ; TODO recover
+
+decrunch
+; read bytes from open file and decode
+; to target addr given by first 2 bytes
+	jsr CHRIN
+	sta ptr0
+	jsr CHRIN
+	sta ptr0+1
+
+loop	jsr READST
+	bne eof
+	jsr CHRIN
+	cmp #$ff
+	beq dorun
+
+dochar	ldy #0
+	sta (ptr0),y
+	iny ; 1 screen char printed
+	bne next
+
+dorun	jsr CHRIN
+	tay ; loop count
+	beq endchunk ; found ff00
+	tax ; loop count backup
+	jsr CHRIN
+	; char in a
+runlp	dey
+	sta (ptr0),y
+	bne runlp
+
+	; restore count for next
+	txa
+	tay
+
+next	; ptr0 += y
+	clc
+	tya
+	adc ptr0
+	sta ptr0
+	lda #0
+	adc ptr0+1
+	sta ptr0+1
+
+	jmp loop
+	
+endchunk
+	lda #0
+eof	rts
+
+	.bend
+
 printst
+; fetches error info from current drive
+; and prints to top left of screen
 	.block
 	lda #0
 	tax
@@ -1274,63 +1373,141 @@ eof	lda #15
 	rts
 	.bend
 
-; handle error in open (code in a)
-operr	jsr printst
+; === START only needed for level edit
+
+savescr
+; saves screen at world coord x,y
+	.block
+	lda #0
+	sta $d015 ; disable all sprites
+
+	; x and y were set by caller
+	lda #2 ; logical file num
+	sec    ; open for write
+	jsr openscrfile
+	bcs operr
+
 	ldx #2
-	stx $d021
-	jmp * ; TODO recover
-	jmp close
+	jsr CHKOUT
 
-; handle error in read
-rderr	jsr printst
-	ldx #3
-	stx $d021
-	jmp * ; TODO recover
-	jmp close
-
-decrunch
-; read bytes from open file and decode
-; to screen
 	lda #<screen
 	sta ptr0
 	lda #>screen
 	sta ptr0+1
+	ldx #<1000
+	ldy #>1000
+	jsr crunch
 
-loop	jsr $ffb7 ; READST
-	bne eof
-	jsr CHRIN
-	cmp #$ff
-	beq dorun
+	; write end of file
+	lda #0
+	jsr CHROUT
 
-dochar	ldy #0
-	sta (ptr0),y
-	iny ; 1 screen char printed
-	bne next
+close	lda #2
+	jsr CLOSE
+	jsr CLRCHN
+	rts
 
-dorun	jsr CHRIN
-	tay ; loop count
-	tax ; loop count backup
-	jsr CHRIN
-	; char in a
-runlp	dey
-	sta (ptr0),y
-	bne runlp
+; handle error in open (code in a)
+operr	jsr printst
+	ldx #2
+	stx $d021
+	jsr close
+	jmp * ; TODO recover
+	.bend
 
-	; restore count for next
-	txa
-	tay
+crunch
+; compress mem block into current file
+; (writes data via kernal CHROUT)
+; ptr0 -> start addr
+; x -> length (lo byte)
+; y -> length (hi byte)
+; note: you can crunch multiple regions
+; into the same file and they will
+; decrunch back to the original addrs
+	.block
+
+	; store length in r0/r1
+	stx r0
+	sty r1
+
+	lda #$ff
+	sta runlim+1 ; selfmod
+
+	; write load addr for this chunk
+	lda r0
+	jsr CHROUT
+	lda r1
+	jsr CHROUT
+
+	; count repeated chars from current pos
+loop	ldy #0
+	lda (ptr0),y
+
+countrun
+	iny
+	cmp (ptr0),y
+	bne diff
+runlim	cpy #$ff ; selfmod: limit run length to end of screen (resets to ff at start)
+	bne countrun
+	; hit runlim - fall through
+
+diff	; escape mechanism:
+	; fe&ff are always runs
+	cmp #$fe
+	bcc writerun
+
+	; otherwise, need >= 3 for RLE
+	cpy #3
+	bcc writeone ; run too short
+
+writerun
+	; run: $ff <count> <value>
+	pha ; value
+	tya
+	pha ; count
+	lda #$ff
+	jsr CHROUT ; RLE code
+	pla
+	jsr CHROUT ; count
+	pla
+	jsr CHROUT ; value
+	jmp next	
+	
+writeone
+	; just write current char
+	ldy #1
+
+	jsr CHROUT
+	jmp next
 
 next	; ptr0 += y
-	clc
 	tya
+	clc
 	adc ptr0
 	sta ptr0
 	lda #0
 	adc ptr0+1
 	sta ptr0+1
 
-	jmp loop
-	
-eof	rts
+	; reached end of src memory?
+	; word at r0 - ptr0
+	sec
+	lda r0
+	sbc ptr0
+	tax ; remember lo byte
+	lda r1
+	sbc ptr0+1
+	bne loop     ; >255 to go
 
-	.bend
+	txa ; recall lo byte
+	sta runlim+1 ; <=255 to go
+	bne loop     ; >0 to go
+
+	; write end-of-chunk
+	lda #$ff
+	jsr CHROUT
+	lda #$00
+	jsr CHROUT
+
+	rts
+.bend
