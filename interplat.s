@@ -1169,10 +1169,11 @@ READST=$ffb7
 openscrfile
 ; call kernal SETNAM,SETLFS,OPEN
 ; with filename of
-; screen at world coord r0,r1
+; screen at world coord x,y
 ; x -> world x-coord of screen
 ; y -> world y-coord of screen
 ; a -> logical file number
+; c -> 0=read 1=write
 ; r0 <- world x-coord of screen
 ; r1 <- world y-coord of screen
 ; c  <- set if error
@@ -1390,9 +1391,19 @@ savescr
 	ldx #2
 	jsr CHKOUT
 
+	; char matrix
 	lda #<screen
 	sta ptr0
 	lda #>screen
+	sta ptr0+1
+	ldx #<1000
+	ldy #>1000
+	jsr crunch
+
+	; colours
+	lda #<$d800
+	sta ptr0
+	lda #>$d800
 	sta ptr0+1
 	ldx #<1000
 	ldy #>1000
@@ -1510,4 +1521,6 @@ next	; ptr0 += y
 	jsr CHROUT
 
 	rts
-.bend
+	.bend
+
+

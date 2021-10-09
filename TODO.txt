@@ -1,13 +1,21 @@
 To do:
-- save and load colour ram
 - screen editing UI with keyboard (and/or joy1?)
+  - sprite cursor - 4 corners of region
+    - use an alternative moblist for select/paste mode
   - copy and paste rectangular regions
   - extension: saved "brushes" of horizontal or vertical runs?
   - character palette
   - switch modes between design and play
   - save screen
   - warp to screen
-  - load screen to current (eg. copy whole screen here)
+  - revert edits of current screen
+  - load any screen to current (eg. copy whole screen here)
+  - when entering play mode, place player
+    - remember last placement
+    - prompt to save when leaving screen
+  - place mobs
+    - choose anim list
+    - choose start location
 - save and load mob structs (even behaviours in special cases)
 
 Later:
@@ -15,6 +23,7 @@ Later:
 - remember which mobs are dead/disabled when we go back to a screen
 
 Done:
+- save and load colour ram
 - call anim and movement routines during visible raster lines (save vbl for vic updates)
 Movement system
 
