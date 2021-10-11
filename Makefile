@@ -9,8 +9,8 @@ interplat.prg: interplat.s catfox_spritenums.s
 	cat $@.list | ./tmplab2vice > $@.labels
 
 catfox_spritenums.s: catsprites.s
-	# start at sprite 128 ($2000), just after ROM chars
-	cat catsprites.s | awk 'BEGIN { x=128; nspr=0; print "firstsprite=" x; } /catfox/ { print $$1 "=" x++; nspr++ } END { print "numsprites=" nspr }' > catfox_spritenums.s
+	# start at sprite 48 ($xC00)
+	cat catsprites.s | awk 'BEGIN { x=48; nspr=0; print "firstsprite=" x; } /catfox/ { print $$1 "=" x++; nspr++ } END { print "numsprites=" nspr }' > catfox_spritenums.s
 
 # process sprite data saved from spritemate in KickAss hex format
 %.s: %.txt %_addr.txt

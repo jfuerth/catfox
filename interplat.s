@@ -1,8 +1,9 @@
 
 .include "catfox_spritenums.s"
 
-screen=$0400
+screen=$4800
 spriteimg=screen+1024-8
+vb=screen & $c000 ; vic base addr
 
 ; temporary vars and pointers
 r0=$02
@@ -151,7 +152,7 @@ wlkspd=40
 jumpspd=70 ; superjump is 100
 sitdelay=60
 gravity=2
-friction=1
+friction=2
 
 ; --------- start of code ---------
 *=$c000
@@ -545,6 +546,22 @@ line    .var line+40
 
 ; ------- one time setup --------
 init
+	; VIC to bank 1 ($4000-$7fff)
+	lda $dd00
+	and #%11111100
+	ora #(3-1)
+	sta $dd00
+
+	; chars at $4000 (bank 0)
+	; screen at $4800 (bank 3)
+	lda #$20
+	sta $d018
+
+	; (sprites will start at $4c00)
+
+	lda #14
+	sta $d021
+
 	; reset globals
 	; (in case of restart)
 	lda #0
@@ -645,14 +662,12 @@ tminit	.macro
 	#tminit "7",21,4,8
 	
 	; mirror sprite images
-	lda #numsprites
-	ldx #<(firstsprite*64)
-vicram=>(screen & $C000) ; top 2 bits
-	ldy #>((firstsprite*64) . vicram)
-	sei
-
 	; has to be done with intrpt
 	; disabled because it uses zp
+	sei
+	lda #numsprites
+	ldx #<((firstsprite*64) . vb)
+	ldy #>((firstsprite*64) . vb)
 	jsr mirrorsprites
 
 install
