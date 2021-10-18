@@ -5,6 +5,10 @@ screen=$4800
 spriteimg=screen+1024-8
 vb=screen & $c000 ; vic base addr
 
+; buffer area for cleaned color ram
+; when saving a screen
+cleancolorbuf=$0400
+
 ; temporary vars and pointers
 r0=$02
 r1=$03
@@ -166,9 +170,9 @@ handleint
 	lda #$ff
 	sta $d019
 
-	; skip mobs if loading new scr
-	jsr chkneedload
-	bcs doneint
+	; game engine stopped?
+	lda gamestop
+	bne doneint
 
 	lda mobcount
 	jsr vicupdate
@@ -184,6 +188,7 @@ doneint	dec $d020
 
 ; ------ global vars ------
 mobcount .byte 0
+gamestop .byte 0
 wantscr	.word $0000
 havescr .word $ffff
 ; PERF: move to ZP if not returning
@@ -696,14 +701,21 @@ install
 ; time in this loop, checking if we
 ; need to load a new screen
 ; and loading it if so.
-loadloop
+ioloop
 	sei
 	jsr chkneedload
 	bcs loadnow
 	cli
-	jmp loadloop
+
+	; user wants to save?
+	jsr GETIN
+	cmp #"\"
+	beq savenow
+
+	jmp ioloop
 	
-loadnow	jsr loadscr
+loadnow	inc gamestop
+	jsr loadscr
 
 	sei
 	ldx wantscr
@@ -711,8 +723,19 @@ loadnow	jsr loadscr
 	stx havescr
 	sty havescr+1
 	cli
+	dec gamestop
+	jmp ioloop
 
-	jmp loadloop
+; === START only needed for edit mode
+savenow	inc gamestop
+
+	ldx havescr
+	ldy havescr+1
+	jsr savescr
+
+	dec gamestop
+	jmp ioloop
+; === END only needed for edit mode
 
 chkneedload
 ; checks if havescr != wantscr
@@ -1175,11 +1198,12 @@ SETLFS=$ffba
 OPEN=$ffc0
 CHKIN=$ffc6
 CHKOUT=$ffc9
-CHRIN=$ffcf
+CHRIN=$ffcf ; blocking
 CHROUT=$ffd2
 CLOSE=$ffc3
 CLRCHN=$ffcc
 READST=$ffb7
+GETIN=$ffe4 ; nonblocking
 
 openscrfile
 ; call kernal SETNAM,SETLFS,OPEN
@@ -1206,14 +1230,14 @@ openscrfile
 	lsr a
 	tax
 	lda hexchr,x
-	sta scfnam+3
+	sta scfnam+5
 
 	; x low nybble
 	lda r0
 	and #$0f
 	tax
 	lda hexchr,x
-	sta scfnam+4
+	sta scfnam+6
 
 	; y high nybble
 	lda r1
@@ -1223,25 +1247,25 @@ openscrfile
 	lsr a
 	tax
 	lda hexchr,x
-	sta scfnam+5
+	sta scfnam+7
 
 	; y low nybble
 	lda r1
 	and #$0f
 	lda hexchr,x
-	sta scfnam+6
+	sta scfnam+8
 	
 	; scfnam has correct coords
 	; now send to SETNAM based on
 	; read or write
 	plp
 	bcs write
-	lda #6 ; length without @,u,w
-	ldx #<(scfnam+1)
-	ldy #>(scfnam+1)
+	lda #6 ; length without @0:,u,w
+	ldx #<(scfnam+3)
+	ldy #>(scfnam+3)
 	jmp sngo
 
-write	lda #11 ; full length
+write	lda #13 ; full length
 	ldx #<scfnam
 	ldy #>scfnam
 sngo	jsr SETNAM
@@ -1259,7 +1283,10 @@ devok	tay      ; secondary addr
 
 	rts
 
-scfnam	.text "@scxxyy,u,w" ; xxyy gets modified
+scfnam
+	.text "@"
+	.text "0:"
+	.text "scxxyy,u,w" ; xxyy gets modified
 hexchr	.text "0123456789abcdef"
 	.bend
 
@@ -1409,17 +1436,24 @@ savescr
 	; char matrix
 	lda #<screen
 	sta ptr0
+	sta r0
 	lda #>screen
 	sta ptr0+1
+	sta r1
 	ldx #<1000
 	ldy #>1000
 	jsr crunch
 
 	; colours
-	lda #<$d800
+	jsr cleancopycolor
+	lda #<cleancolorbuf
 	sta ptr0
-	lda #>$d800
+	lda #>cleancolorbuf
 	sta ptr0+1
+	lda #<$d800
+	sta r0
+	lda #>$d800
+	sta r1
 	ldx #<1000
 	ldy #>1000
 	jsr crunch
@@ -1439,31 +1473,64 @@ operr	jsr printst
 	stx $d021
 	jsr close
 	jmp * ; TODO recover
+
+cleancopycolor
+	ldy #250
+
+cccloop	lda $d800,y
+	and #$0f
+	sta cleancolorbuf,y
+	lda $d800+250,y
+	and #$0f
+	sta cleancolorbuf+250,y
+	lda $d800+500,y
+	and #$0f
+	sta cleancolorbuf+500,y
+	lda $d800+750,y
+	and #$0f
+	sta cleancolorbuf+750,y
+	dey
+	bne cccloop
+	rts
+
 	.bend
 
 crunch
 ; compress mem block into current file
 ; (writes data via kernal CHROUT)
-; ptr0 -> start addr
+; ptr0 -> source block start addr
+; r0/r1 -> start addr to decrunch to
 ; x -> length (lo byte)
 ; y -> length (hi byte)
 ; note: you can crunch multiple regions
 ; into the same file and they will
 ; decrunch back to the original addrs
+; x, y, a <- junk
+; r0, r1 <- end addr of source block
 	.block
-
-	; store length in r0/r1
-	stx r0
-	sty r1
-
-	lda #$ff
-	sta runlim+1 ; selfmod
 
 	; write load addr for this chunk
 	lda r0
 	jsr CHROUT
 	lda r1
 	jsr CHROUT
+
+	; replace r0/r1 with end addr
+	clc
+	txa
+	adc ptr0
+	sta r0
+	tya
+	adc ptr0+1
+	sta r1
+
+	; set initial run limit
+	tya ; length > 255?
+	beq short
+	lda #$ff
+	bne *+2 ; always taken
+short	txa
+setlim	sta runlim+1 ; selfmod
 
 	; count repeated chars from current pos
 loop	ldy #0
@@ -1480,7 +1547,7 @@ runlim	cpy #$ff ; selfmod: limit run length to end of screen (resets to ff at st
 diff	; escape mechanism:
 	; fe&ff are always runs
 	cmp #$fe
-	bcc writerun
+	bcs writerun
 
 	; otherwise, need >= 3 for RLE
 	cpy #3
