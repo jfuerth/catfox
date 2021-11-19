@@ -15,8 +15,8 @@ r1=$03
 r2=$04
 r3=$05
 r4=$06
-ptr0=$fd
-ptr0h=$fe
+ptr0=$fb ; $fc
+ptr1=$fd ; $fe
 
 ; mob struct
 mobxl=0
@@ -141,14 +141,32 @@ setalist .segment
 	#mobsta "attl"
 	.endm
 
-add16	.macro
+; add absolute addressed + immediate
+; 1 - absolute arg (low byte)
+; 2 - immediate value to add
+; result overwrites 2 bytes at arg 1
+add16ai	.macro
 	clc
 	lda \1
-	adc #\2
+	adc #<\2
 	sta \1
 	lda \1+1
-	adc #0
+	adc #>\2
 	sta \1+1
+	.endm
+
+; subtract absolute words
+; 1 - absolute arg (low byte)
+; 2 - absolute arg (low byte)
+; result in x (low) and y (high)
+sub16	.macro
+	sec
+	lda \1
+	sbc \2
+	tax
+	lda \1+1
+	sbc \2+1
+	tay
 	.endm
 
 ; ----- settings ------
@@ -1115,7 +1133,7 @@ mirrorsprites
 	.block
 
 	stx ptr0 ; source pointer
-	sty ptr0h
+	sty ptr0+1
 
 	sta r3 ; overall loop count
 
@@ -1134,7 +1152,7 @@ mirrorsprites
 	lda ptr0
 	adc r0
 	sta dstaddr+1
-	lda ptr0h
+	lda ptr0+1
 	adc r1
 	sta dstaddr+2
 
@@ -1175,15 +1193,15 @@ dstaddr	sta $ffff,x ; addr set by code
 	bpl writedst	
 
 	; inc ptrs by 3 (1 line)
-	#add16 ptr0,3
-	#add16 dstaddr+1,3
+	#add16ai ptr0,3
+	#add16ai dstaddr+1,3
 
 	dec r4
 	bne flipline
 	
 	; inc ptrs past unused byte
-	#add16 ptr0,1
-	#add16 dstaddr+1,1
+	#add16ai ptr0,1
+	#add16ai dstaddr+1,1
 
 	dec r3
 	bne flipsprite
@@ -1346,29 +1364,46 @@ loop	jsr READST
 	jsr CHRIN
 	cmp #$ff
 	beq dorun
+	cmp #$fe
+	beq dosim
 
 dochar	ldy #0
 	sta (ptr0),y
-	iny ; 1 screen char printed
-	bne next
+	ldx #1 ; 1 screen char printed
+	bne next ; always
 
 dorun	jsr CHRIN
 	tay ; loop count
 	beq endchunk ; found ff00
-	tax ; loop count backup
+	tax ; byte count for next
 	jsr CHRIN
 	; char in a
 runlp	dey
 	sta (ptr0),y
 	bne runlp
+	beq next ; always
 
-	; restore count for next
-	txa
-	tay
-
-next	; ptr0 += y
+dosim	jsr CHRIN
+	tay ; sim length/count
+	tax ; byte count for next
+	jsr CHRIN
+	sta r4 ; ptr0 - r4 = start addr
+	sec
+	lda ptr0
+	sbc r4
+	sta ptr1
+	lda ptr0+1
+	sbc #0
+	sta ptr1+1
+simlp	dey
+	lda (ptr1),y
+	sta (ptr0),y
+	cpy #0
+	bne simlp
+	
+next	; ptr0 += x
 	clc
-	tya
+	txa
 	adc ptr0
 	sta ptr0
 	lda #0
@@ -1475,22 +1510,35 @@ operr	jsr printst
 	jmp * ; TODO recover
 
 cleancopycolor
-	ldy #250
 
-cccloop	lda $d800,y
+	; reset self-mod ptrs
+	lda #>screen
+	sta cccloop+2
+	lda #>$d800
+	sta rdcolr+2
+	lda #>cleancolorbuf
+	sta wrcolr+2
+
+	lda #0
+cccloop	ldx screen,y ; selfmod
+	cpx #$20
+	beq wrcolr
+rdcolr	lda $d800,y  ; selfmod
 	and #$0f
-	sta cleancolorbuf,y
-	lda $d800+250,y
-	and #$0f
-	sta cleancolorbuf+250,y
-	lda $d800+500,y
-	and #$0f
-	sta cleancolorbuf+500,y
-	lda $d800+750,y
-	and #$0f
-	sta cleancolorbuf+750,y
-	dey
+wrcolr	sta cleancolorbuf,y ; selfmod
+	iny
 	bne cccloop
+
+	; y wrapped around: inc ptrs
+	inc cccloop+2
+	inc rdcolr+2
+	inc wrcolr+2
+
+	; done?
+	ldx rdcolr+2
+	cpx #($d8+4)
+	bne cccloop
+
 	rts
 
 	.bend
@@ -1505,8 +1553,10 @@ crunch
 ; note: you can crunch multiple regions
 ; into the same file and they will
 ; decrunch back to the original addrs
-; x, y, a <- junk
-; r0, r1 <- end addr of source block
+; x, y, a, ptr0, r2, r3, r4 <- junk
+; r0, r1 <- start addr of source block
+; r2, r3 <- end addr of source block
+
 	.block
 
 	; write load addr for this chunk
@@ -1515,14 +1565,14 @@ crunch
 	lda r1
 	jsr CHROUT
 
-	; replace r0/r1 with end addr
+	; set r2/r3 to end addr
 	clc
 	txa
 	adc ptr0
-	sta r0
+	sta r2
 	tya
 	adc ptr0+1
-	sta r1
+	sta r3
 
 	; set initial run limit
 	tya ; length > 255?
@@ -1539,32 +1589,66 @@ loop	ldy #0
 countrun
 	iny
 	cmp (ptr0),y
-	bne diff
+	bne runend
 runlim	cpy #$ff ; selfmod: limit run length to end of screen (resets to ff at start)
 	bne countrun
 	; hit runlim - fall through
 
-diff	; escape mechanism:
-	; fe&ff are always runs
-	cmp #$fe
+runend	sty runlen
+
+	jsr countsim
+	cmp runlen
+	beq tryrun ; run==sim; use run
+	bcs trysim ; run<sim; use sim
+tryrun
+	; need run >= 4 for RLE
+	ldy runlen
+	cpy #4
 	bcs writerun
 
-	; otherwise, need >= 3 for RLE
-	cpy #3
-	bcc writeone ; run too short
+writechar
+	; escape mechanism:
+	; fe&ff are always runs
+	ldy #0
+	lda (ptr0),y
+	cmp #$fe
+	bcc writeone
+	; data is $fe or $ff so
+	; fall through to writerun
 
 writerun
 	; run: $ff <count> <value>
-	pha ; value
-	tya
-	pha ; count
 	lda #$ff
 	jsr CHROUT ; RLE code
-	pla
+	lda runlen
 	jsr CHROUT ; count
-	pla
+	ldy #0
+	lda (ptr0),y
 	jsr CHROUT ; value
+	ldy runlen
 	jmp next	
+	
+trysim
+	; need len >= 4 for sim
+	ldy bestsimlen
+	cpy #4
+	bcc writechar
+writesim
+	; next <count> chars are
+	; similar to some previous data
+	; $fe <count> <bytes back>
+	lda #$fe
+	jsr CHROUT
+	lda bestsimlen
+	jsr CHROUT
+
+	sec
+	lda ptr0
+	sbc ptr1
+	jsr CHROUT
+
+	ldy bestsimlen
+	jmp next
 	
 writeone
 	; just write current char
@@ -1583,26 +1667,118 @@ next	; ptr0 += y
 	sta ptr0+1
 
 	; reached end of src memory?
-	; word at r0 - ptr0
+	; word at r2/r3 - ptr0
 	sec
-	lda r0
+	lda r2
 	sbc ptr0
 	tax ; remember lo byte
-	lda r1
+	lda r3
 	sbc ptr0+1
-	bne loop     ; >255 to go
+	bne loop_    ; >255 to go
 
 	txa ; recall lo byte
 	sta runlim+1 ; <=255 to go
-	bne loop     ; >0 to go
+	bne loop_    ; >0 to go
 
 	; write end-of-chunk
+	; TODO don't need this?
 	lda #$ff
 	jsr CHROUT
 	lda #$00
 	jsr CHROUT
 
 	rts
+
+loop_	jmp loop
+
+runlen .byte 0
+bestsimlen .byte 0
+bestsimstart .word 0
+
+countsim
+; -> r0/r1 - start addr of chunk
+; -> ptr0 - addr of next char to save
+;    (value preserved on return)
+; <- bestsimlen - longest similarity
+; <- a - same as bestsimlen
+; <- ptr1 - start of longest similarity
+	; reset return vals
+	lda #0
+	sta bestsimlen
+	sta bestsimstart
+	sta bestsimstart+1
+
+	; put ptr0-255 in x/y
+	sec
+	lda ptr0
+	sbc #$ff
+	tax ; lo byte of ptr0-255
+	lda ptr0+1
+	sbc #0
+	tay ; hi byte of ptr0-255
+
+	; start scanning for similar
+	; patterns at
+	; max(r0, ptr0-255)
+	cpy r0+1
+	bcc startr0  ; ptr0h-1 < r0h
+	bne startptr0; ptr0h-1 > r0h
+	cpx r0
+	bcc startr0; ptr0l < r0l
+
+; start scan at ptr0-255
+startptr0
+	sty ptr1+1
+	stx ptr1
+	jmp csscan
+
+; start scan at beginning of
+; data chunk we are saving (r0/r1 ptr)
+startr0	ldx r0+1
+	stx ptr1+1
+	ldx r0
+	stx ptr1
+
+csscan
+; figure out how far we can scan
+;   r4 <- ptr0-ptr1 (never > 255)
+	sec
+	lda ptr0
+	sbc ptr1
+	sta r4
+	cmp #4 ; ptr1 too close to ptr0
+	bcc csdone
+
+	ldy #0
+csloop
+	lda (ptr0),y
+	cmp (ptr1),y
+	bne cscheck
+	iny
+	cpy r4
+	bcc csloop
+
+cscheck
+	cpy bestsimlen
+	bcs csbetter
+	bcc csnext  ; always taken
+
+csbetter
+	sty bestsimlen
+	lda ptr1
+	sta bestsimstart
+	lda ptr1+1
+	sta bestsimstart+1
+
+csnext
+	#add16ai ptr1,1
+	jmp csscan
+
+csdone
+	lda bestsimstart
+	sta ptr1
+	lda bestsimstart+1
+	sta ptr1+1
+	lda bestsimlen
+	rts
 	.bend
-
-
