@@ -365,7 +365,8 @@ goingright
 	#moblda "dxh"
 	sbc #0
 	sta (ptr0),y
-;TODO clamp to 0
+	; if 0 crossed, goingleft will
+	; clamp to 0 next frame
 	jmp donefriction
 
 goingleft
@@ -376,7 +377,12 @@ goingleft
 	#moblda "dxh"
 	adc #0
 	sta (ptr0),y
-;TODO clamp to 0
+	; if 0 crossed, clamp to 0
+	bcc donefriction
+	lda #0
+	sta (ptr0),y
+	dey
+	sta (ptr0),y
 	jmp donefriction
 
 donefriction
@@ -535,7 +541,10 @@ lrflyact
 	.bend
 
 getsc
-; gets screencode at xr,yr -> acc
+; get screencode at x,y
+; x -> horizontal char pos 0..39
+; y -> vertical char pos 0..24
+; a <- screencode at x,y
 ; trashes r3&r4
 	.block
 	; find line addr in table
