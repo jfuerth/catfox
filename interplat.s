@@ -36,6 +36,13 @@ mobattl=13 ; countdown current frame
 mobact=14 ; +15
 mobstructsz=16
 
+; constants
+jup=   %00000001
+jdown= %00000010
+jleft= %00000100
+jright=%00001000
+jfire= %00010000
+
 ; load 8-bit mob prop into a
 ; #moblda "colr"
 ; a <- prop value
@@ -272,11 +279,6 @@ scrright
 	
 donescr
 
-up=   %00000001
-down= %00000010
-left= %00000100
-right=%00001000
-fire= %00010000
 
 ; process inputs and bg interactions
 ; based on current state
@@ -389,7 +391,7 @@ donefriction
 	.bend
 
 	.block
-ckfire	lda #fire
+ckfire	lda #jfire
 	bit $dc00
 	bne done
 
@@ -427,7 +429,7 @@ donestates
 ; all states:
 ; apply joystick l/r and x-mirroring
 	.block
-ckleft	lda #left
+ckleft	lda #jleft
 	bit $dc00
 	bne done
 
@@ -439,7 +441,7 @@ done
 	.bend
 
 	.block
-ckright	lda #right
+ckright	lda #jright
 	bit $dc00
 	bne done
 
@@ -538,6 +540,104 @@ done	rts
 lrflyact
 	.block
 	; TODO fill this in
+	.bend
+
+; ------ copy/paste controls ------
+cpstate	.byte 0
+cpsoff	= 0
+cpssel	= 1
+cpsplc	= 2
+
+mobcptl ; top left marker mob
+	.word $0200 ; x pos
+	.word 0 ; dx
+	.word $1000 ; y pos
+	.word 0 ; dy
+	.byte 7 ; color & flags
+	.byte 252 ; sprite img num
+	.word 0 ; alist addr
+	.byte 0 ; aframe
+	.byte 0 ; attl
+	.word cpact ; action
+mobcptr ; top right marker mob
+	.word $0600 ; x pos
+	.word 0 ; dx
+	.word $1000 ; y pos
+	.word 0 ; dy
+	.byte 7 ; color & flags
+	.byte 253 ; sprite img num
+	.word 0 ; alist addr
+	.byte 0 ; aframe
+	.byte 0 ; attl
+	.word 0 ; action
+mobcpbl ; top left marker mob
+	.word $0200 ; x pos
+	.word 0 ; dx
+	.word $1400 ; y pos
+	.word 0 ; dy
+	.byte 7 ; color & flags
+	.byte 254 ; sprite img num
+	.word 0 ; alist addr
+	.byte 0 ; aframe
+	.byte 0 ; attl
+	.word 0 ; action
+mobcpbr ; top left marker mob
+	.word $0600 ; x pos
+	.word 0 ; dx
+	.word $1400 ; y pos
+	.word 0 ; dy
+	.byte 7 ; color & flags
+	.byte 255 ; sprite img num
+	.word 0 ; alist addr
+	.byte 0 ; aframe
+	.byte 0 ; attl
+	.word 0 ; action
+	
+cpact
+; mob action: copy/paste controls
+	.block
+r	lda #jright
+	bit $dc01
+	bne l
+	inc mobcptl+mobxh
+	inc mobcptr+mobxh
+	inc mobcpbl+mobxh
+	inc mobcpbr+mobxh
+
+l	lda #jleft
+	bit $dc01
+	bne u
+	dec mobcptl+mobxh
+	dec mobcptr+mobxh
+	dec mobcpbl+mobxh
+	dec mobcpbr+mobxh
+
+u	lda #jup
+	bit $dc01
+	bne d
+	dec mobcptl+mobyh
+	dec mobcptr+mobyh
+	dec mobcpbl+mobyh
+	dec mobcpbr+mobyh
+
+d	lda #jdown
+	bit $dc01
+	bne f
+	inc mobcptl+mobyh
+	inc mobcptr+mobyh
+	inc mobcpbl+mobyh
+	inc mobcpbr+mobyh
+f
+done
+	rts
+; need 4 mobs: tl, tr, bl, br
+; modes:
+;  no fire: moving with same size
+;  fire+move: resize (move bl and br)
+;  C= X: cut
+;  C= C: copy
+;  C= V: paste
+;  C= N: save as new stamp
 	.bend
 
 getsc
@@ -688,10 +788,6 @@ tminit	.macro
 
 	#tminit "2",4,4,3
 	#tminit "3",8,4,4
-	#tminit "4",12,4,9
-	#tminit "5",16,4,6
-	#tminit "6",20,4,7
-	#tminit "7",21,4,8
 	
 	; mirror sprite images
 	; has to be done with intrpt
@@ -818,10 +914,6 @@ catmob	.repeat mobstructsz,$00
 testmob	.repeat mobstructsz,$00
 tm2	.repeat mobstructsz,$00
 tm3	.repeat mobstructsz,$00
-tm4	.repeat mobstructsz,$00
-tm5	.repeat mobstructsz,$00
-tm6	.repeat mobstructsz,$00
-tm7	.repeat mobstructsz,$00
 
 ; --- mob pointers
 mobtab
@@ -829,10 +921,12 @@ mobtab
 	.word testmob
 	.word tm2
 	.word tm3
-	.word tm4
-	.word tm5
-	.word tm6
-	.word tm7
+
+	; copy/paste selection markers
+	.word mobcptl
+	.word mobcptr
+	.word mobcpbl
+	.word mobcpbr
 
 mobtabsz .byte 8
 
@@ -942,6 +1036,11 @@ nextaframe
 	iny
 	lda (ptr0),y
 	sta r4
+
+	; if alist pointer is null,
+	; no alist processing
+	ora r3
+	beq donealist
 
 	; fetch current anim list instr
 	; into r0/r1
@@ -1133,6 +1232,208 @@ noflip	txa
 	rts
 
 	.bend
+
+; --- stamps: placeable rectangles
+;     of background chars
+mkstamp
+; creates a stamp from the given
+; screen coords
+; x, y -> top-left col, row
+; r1, r2 -> width, height
+; a -> mem slot (address aa00)
+; a, x, y, r3, r4 <- junk
+	.block
+
+	; set hi byte of dest addrs
+	sta stchar+2
+	sta stcolr+2
+	sta stlen+2
+	sta stwid+2
+
+	; calc char src start addr
+	tya
+	asl a
+	tay
+	clc
+	txa            ;  col number
+	adc scrlines,y ; + line addr
+	sta ldchar+1 ; char src lobyte
+	sta ldcolr+1 ; color src lobyte
+	iny
+	lda scrlines,y
+	adc #0
+	sta ldchar+2 ; char src hi byte
+	
+	; calc color src start addr
+	; = char addr + ($d800-screen)
+	; (lo byte is set above)
+	clc
+	lda #>($d800-screen)
+	adc ldchar+2
+	sta ldcolr+2
+
+	; calc num char bytes
+	; r3 <- width*height
+	lda #0
+	ldy r2
+	clc
+csloop	adc r1
+	dey
+	bne csloop
+	sta r3
+stlen	sta $ff00 ; selfmod
+	lda r1
+stwid	sta $ff01 ; selfmod
+
+	; set char&color dest addrs
+	lda stchar+1
+	adc r3
+	sta stcolr+1
+
+	; r4 <- 40-width
+	; for incrementing src addrs
+	lda #40
+	sec
+	sbc r1
+	sta r4
+
+	; do the copy
+	ldy #0 ; dest offset
+rowloop	ldx r1 ; src offset
+colloop
+ldchar	lda screen,x; selfmod
+stchar	sta $ff02,y ; selfmod
+ldcolr	lda $d800,x ; selfmod
+stcolr	sta $ff00,y ; selfmod
+	iny
+	dex
+	bpl colloop
+
+	cpy r3  ; all bytes copied?
+	beq done
+
+	; next row: src += (40-width)
+	clc
+	lda ldchar+1
+	adc r4
+	sta ldchar+1
+	lda ldchar+2
+	adc #0
+	sta ldchar+2
+
+	clc
+	lda ldcolr+1
+	adc r4
+	sta ldcolr+1
+	lda ldcolr+2
+	adc #0
+	sta ldcolr+2
+	jmp rowloop
+
+done	; zero remainder of page
+	; to improve RLE on disk save
+	lda stchar+2
+	sta zloop+2
+	lda #0
+zloop	sta $ff00,y
+	iny
+	bne zloop
+	rts
+	.bend
+
+usestamp
+; a -> slot number (mem page)
+; x, y: top left row, col
+; a, x, y, r3, r4 <- junk
+	.block
+	sta getlen+2
+	sta getwid+2
+	sta ldchar+2
+	sta ldcolr+2
+
+	; calc char dest start addr
+	tya
+	asl a
+	tay
+	clc
+	txa            ;  col number
+	adc scrlines,y ; + line addr
+	sta stchar+1 ; char dest lobyte
+	sta stcolr+1 ; color dest lobyte
+	iny
+	lda scrlines,y
+	adc #0
+	sta stchar+2 ; char src hi byte
+	
+	; calc color dest start addr
+	; = char addr + ($d800-screen)
+	; (lo byte is set above)
+	clc
+	lda #>($d800-screen)
+	adc stchar+2
+	sta stcolr+2
+
+getlen	ldy $ff00 ; byte 0: total chars
+	sty r3
+getwid	ldx $ff01 ; byte 1: row width
+	stx r1
+
+	; calc color src start
+	clc
+	lda ldchar+1
+	adc r3
+	sta ldcolr+1
+
+	; r4 <- 40-width
+	; for incrementing dest addrs
+	lda #40
+	sec
+	sbc r1
+	sta r4
+
+	; do the copy
+	ldy #0 ; dest offset
+rowloop	ldx r1 ; src offset
+colloop
+ldchar	lda $ff02,y ; selfmod
+stchar	sta screen,x; selfmod
+ldcolr	lda $ff00,y ; selfmod
+stcolr	sta $d800,x ; selfmod
+	iny
+	dex
+	bpl colloop
+
+	cpy r3  ; all bytes copied?
+	beq done
+
+	; next row: src += (40-width)
+	clc
+	lda stchar+1
+	adc r4
+	sta stchar+1
+	lda stchar+2
+	adc #0
+	sta stchar+2
+
+	clc
+	lda stcolr+1
+	adc r4
+	sta stcolr+1
+	lda stcolr+2
+	adc #0
+	sta stcolr+2
+	jmp rowloop
+
+done	rts
+	.bend
+
+mvstamp
+	rts
+
+rmstamp
+	rts
+
+; --- sprite mirroring (setup)
 
 mirrorsprites
 ; mirrors single colour sprite images

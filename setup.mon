@@ -1,5 +1,5 @@
-l "screen.prg" 0
 l "interplat.prg" 0
 pb "interplat.prg.labels"
 l "catsprites.prg" 0
-
+l "cornersprites.prg" 0
+l "bgchars.prg" 0
