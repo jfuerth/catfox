@@ -2,6 +2,9 @@ CFLAGS=-g
 
 default: interplat.prg catsprites.prg
 
+run: interplat.prg
+	cat setup.mon | nc localhost 6510
+
 interplat.prg: interplat.s catfox_spritenums.s
 
 %.prg: %.s tmplab2vice

@@ -43,7 +43,10 @@ jleft= %00000100
 jright=%00001000
 jfire= %00010000
 
-; load 8-bit mob prop into a
+; mobXXX functions: read/write mob
+; struct pointed to by ptr0
+
+; load 8-bit mob prop into acc
 ; #moblda "colr"
 ; a <- prop value
 ; y <- prop offset
@@ -52,7 +55,7 @@ moblda	.macro
 	lda (ptr0),y
 	.endm
 
-; store 8-bit mob prop from a
+; store 8-bit mob prop from acc
 ; #mobsta "colr"
 ; a -> prop value
 ; y <- prop offset
@@ -177,11 +180,11 @@ sub16	.macro
 	.endm
 
 ; ----- settings ------
-wlkspd=40
-jumpspd=70 ; superjump is 100
-sitdelay=60
-gravity=2
-friction=2
+wlkspd=85
+jumpspd=80 ; superjump is 100
+sitdelay=120
+gravity=3
+friction=20
 
 ; --------- start of code ---------
 *=$c000
@@ -354,42 +357,6 @@ iswalk	; --------------
 ; idle and walk are the same from here
 idlewalk
 
-	; friction: pull dx toward 0
-	.block
-	#moblda "dxh"
-	bmi goingleft
-goingright
-	#moblda "dxl"
-	beq donefriction ; not moving
-	sec
-	sbc #friction
-	sta (ptr0),y
-	#moblda "dxh"
-	sbc #0
-	sta (ptr0),y
-	; if 0 crossed, goingleft will
-	; clamp to 0 next frame
-	jmp donefriction
-
-goingleft
-	#moblda "dxl"
-	clc
-	adc #friction
-	sta (ptr0),y
-	#moblda "dxh"
-	adc #0
-	sta (ptr0),y
-	; if 0 crossed, clamp to 0
-	bcc donefriction
-	lda #0
-	sta (ptr0),y
-	dey
-	sta (ptr0),y
-	jmp donefriction
-
-donefriction
-	.bend
-
 	.block
 ckfire	lda #jfire
 	bit $dc00
@@ -450,6 +417,43 @@ ckright	lda #jright
 	#mobstax "dxl"
 	#setmobxm 0
 done
+	.bend
+
+	; friction: pull dx toward 0
+applyfriction
+	.block
+	#moblda "dxh"
+	bmi goingleft
+goingright
+	#moblda "dxl"
+	beq donefriction ; not moving
+	sec
+	sbc #friction
+	sta (ptr0),y
+	#moblda "dxh"
+	sbc #0
+	sta (ptr0),y
+	; if 0 crossed, goingleft will
+	; clamp to 0 next frame
+	jmp donefriction
+
+goingleft
+	#moblda "dxl"
+	clc
+	adc #friction
+	sta (ptr0),y
+	#moblda "dxh"
+	adc #0
+	sta (ptr0),y
+	; if 0 crossed, clamp to 0
+	bcc donefriction
+	lda #0
+	sta (ptr0),y
+	dey
+	sta (ptr0),y
+	jmp donefriction
+
+donefriction
 	.bend
 
 	rts
@@ -903,8 +907,8 @@ cfwalkanim
 	.byte 0,0 ; goto frame 0
 
 cffallanim
-	.byte catfox_fall_0,2
-	.byte catfox_fall_1,2
+	.byte catfox_fall_0,4
+	.byte catfox_fall_1,4
 	.byte 0,0 ; goto frame 0
 
 ; --------- mobs ---------
@@ -1432,6 +1436,7 @@ mvstamp
 
 rmstamp
 	rts
+;xxx
 
 ; --- sprite mirroring (setup)
 

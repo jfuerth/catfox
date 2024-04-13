@@ -1,4 +1,11 @@
 To do:
+- controls
+  - tinker with exelaration
+  - i-frames after damage (tweak that)
+- bugs
+  - handle load error when trying to reach nonexistent screen
+    - just a blank screen if file not found
+    - clamp screen coordinates to min/max world coords (so you don't fall forever)
 - screen editing UI with keyboard (and/or joy1?)
   - sprite cursor - 4 corners of region
     - use an alternative moblist for select/paste mode

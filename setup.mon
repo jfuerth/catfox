@@ -3,3 +3,4 @@ pb "interplat.prg.labels"
 l "catsprites.prg" 0
 l "cornersprites.prg" 0
 l "bgchars.prg" 0
+g $c000
