@@ -50,48 +50,40 @@ int main(int argc, char const *argv[])
     return 0;
 }
 
+// consumes the next 1000 bytes and outputs them in crunched form.
+// special bytes:
+// ff = run. followed by length, char
+// fe = copy. followed by distance back, char count
 void crunch_screen() {
-    u_int8_t ch = 0;
+    u_int8_t nextch = getchar();
     u_int16_t runlen = 0;
-    u_int8_t prevch = 0;
-    u_int8_t done = 0;
-    u_int16_t i = 0;
-    for (;;) {
-        // cases to consider:
-        //  * we are in a run (need to close it out)
-        //  * we are not in a run (need to emit last char)
-        ch = getchar();
-        if (i == 0) {
-            prevch = ch;
-        }
-        i++;
-        runlen++;
-        done = i == 40 * 25;
+    for (int chars_read = 0; chars_read < 1000; ) {
+        u_int8_t ch = nextch;
+        runlen = 1;
+        do {
+            nextch = getchar();
+            runlen++;
+            chars_read++;
+        } while (nextch == ch && chars_read < 1000 && runlen < 255);
 
-        if (ch == prevch && runlen < 255 && !done) {
-            continue;
-        }
+        output_run(runlen - 1, ch, chars_read);
+    }
+    ungetc(nextch, stdin);
+}
 
-        if (runlen == 0) {
-            fprintf(stderr, "Error: runlen=%d, ch=%d, prevch=%d, i=%d\n", runlen, ch, prevch, i);
-        } else if (runlen <= 3 && prevch < START_SIM) {
-            // short run of non-special chars - just output literals
-            for (int j = 0; j < runlen; j++) {
-                putchar(prevch);
-            }
-        } else {
-            // run is long enough to be worth encoding, or has special chars - output run
-            putchar(START_RUN);
-            putchar(runlen);
-            putchar(prevch);
+void output_run(u_int16_t runlen, u_int8_t ch, u_int16_t i) {
+    fprintf(stderr, "Making run at i=%d: runlen=%d, ch=%d ('%c')\n", i, runlen, ch, ch);
+    if (runlen == 0) {
+        fprintf(stderr, "Error at i=%d: runlen=%d, ch=%d ('%c')\n", i, runlen, ch, ch);
+    } else if (runlen <= 3 && ch < START_SIM) {
+        // short run of non-special chars - just output literals
+        for (int j = 0; j < runlen; j++) {
+            putchar(ch);
         }
-
-        if (done) {
-            break;
-        }
-
-        // reset for next char
-        runlen = 0;
-        prevch = ch;
+    } else {
+        // run is long enough to be worth encoding, or has special chars - output run
+        putchar(START_RUN);
+        putchar(runlen);
+        putchar(ch);
     }
 }
