@@ -6,6 +6,10 @@ const char *red = "\033[31m";
 const char *green = "\033[32m";
 const char *black = "\033[0m";
 
+// flags in the higher bits of memory locations
+const u_int16_t RUN_START = 0x1000;
+const u_int16_t RUN_END = 0x2000;
+
 int read16() {
   int ch, val;
   ch = getc(stdin);
@@ -17,12 +21,12 @@ int read16() {
 
 void dumpscr(int mem[], int ptr) {
   printf("%sPrinting screen at %x\n", black, ptr);
-  for (int row = 0; row < 25; row++) {
+  for (int row = 0; row < 26; row++) {
     printf("r%2d (0x%04x): ", row, ptr);
     for (int col = 0; col < 40; col++) {
-      if (mem[ptr] & 0x1000) {
+      if (mem[ptr] & RUN_START) {
         printf("%c[0m<", 0x1b);
-      } else if (mem[ptr] & 0x2000) {
+      } else if (mem[ptr] & RUN_END) {
         printf("%c[0m>", 0x1b);
       } else {
         printf(" ");
@@ -56,7 +60,7 @@ int main(int argc, char **argv) {
   // read start address
   printf("Starting to decode at %x\n", ptr);
 
-  int ch;
+  int ch = getc(stdin);
   while (!feof(stdin)) {
     switch (ch) {
       case 0xff: {
@@ -71,10 +75,10 @@ int main(int argc, char **argv) {
             for (int i = 0; i < len; i++) {
               mem[ptr] = 0x200 | ch;
               if (i == 0) {
-                mem[ptr] |= 0x1000; // start of run
+                mem[ptr] |= RUN_START;
               }
               if (i == len-1) {
-                mem[ptr] |= 0x2000; // end of run
+                mem[ptr] |= RUN_END;
               }
               ptr++;
             }
@@ -91,10 +95,10 @@ int main(int argc, char **argv) {
             printf("%c", mem[ptr - offs]);
             mem[ptr] = 0x100 | (mem[ptr - offs] & 0xff);
             if (i == 0) {
-              mem[ptr] |= 0x1000; // start of run
+              mem[ptr] |= RUN_START;
             }
             if (i == len-1) {
-              mem[ptr] |= 0x2000; // end of run
+              mem[ptr] |= RUN_END;
             }
             ptr++;
           }

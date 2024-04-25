@@ -182,6 +182,7 @@ sub16	.macro
 ; ----- settings ------
 wlkspd=85
 jumpspd=80 ; superjump is 100
+jumpframes=6 ; frames when button works
 sitdelay=120
 gravity=3
 friction=20
@@ -237,12 +238,13 @@ playeract
 	and #$0f
 	ora r0 ; mix in flags
 	sta catmob+mobcolr
-	jmp dostates
+	jmp donecoll
 nocoll	lda catmob+mobcolr
 	and #$f0
 	ora #1
 	sta catmob+mobcolr
 
+donecoll
 	; check for edge of screen
 	#mobldax "xl"
 	cpx #0
@@ -1635,6 +1637,7 @@ loadscr
 	jsr openscrfile
 	bcs operr
 
+	; skip load address
 	ldx #2
 	jsr CHKIN
 
