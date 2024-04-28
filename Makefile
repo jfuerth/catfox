@@ -4,6 +4,10 @@ default: interplat.prg catsprites.prg
 
 # To 'make run' you need Vice x64sc running with the remote monitor on port 6510:
 #     x64sc -remotemonitor -remotemonitoraddress localhost:6510
+# Required settings:
+#  * drive 8 mapped to "host filesystem IEC device" in this directory
+#    (use path="." if you start x64sc in this directory)
+#  * Joystick in port 2
 run: interplat.prg
 	cat setup.mon | nc localhost 6510
 
@@ -23,3 +27,4 @@ catfox_spritenums.s: catsprites.s
 
 # screens
 # TODO set up targets for this
+# make screen_convert && ./screen_convert < ~/Downloads/sc0300.prg > sc0300 && hexdump -C sc0300 && ./decrunch < sc0300 

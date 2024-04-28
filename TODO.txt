@@ -1,7 +1,18 @@
 To do:
-- controls
+- P1 controls
   - tinker with excelaration
   - i-frames after damage (tweak that)
+  - fine tune platform detection (feels misaligned when falling)
+- P2 controls
+  - use highest sprite priority for crosshairs
+  - make fine positioning work (it's too fast right now--needs initial delay)
+  - reset screen
+- enemies
+  - getting arrested (resets screen)
+  - implement enemy patterns
+  - draw enemy sprites
+- levels
+  - convert to multi-colour backgrounds
 - bugs
   - handle load error when trying to reach nonexistent screen
     - just a blank screen if file not found

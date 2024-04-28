@@ -43,6 +43,8 @@ jleft= %00000100
 jright=%00001000
 jfire= %00010000
 
+spriteyoffs=29 ; y pos is bottom of spr
+
 ; mobXXX functions: read/write mob
 ; struct pointed to by ptr0
 
@@ -123,6 +125,20 @@ setmobxm .macro
 	and #%10111111
 	.endif
 	sta (ptr0),y
+	.endm
+
+; copy mob attribute from current mob
+;   #mobcpa "othermobname" "mobxh"
+mobcpa .segment
+	pha
+	tya
+	pha
+	ldy #@2
+	lda (ptr0),y
+	sta @1+@2
+	pla
+	tay
+	pla
 	.endm
 
 ; test if current mob's alist is same
@@ -213,7 +229,7 @@ handleint
 
 doneint	dec $d020
 	jmp $ea31
-	.bend	
+	.bend
 
 ; ------ global vars ------
 mobcount .byte 0
@@ -226,6 +242,7 @@ havescr .word $ffff
 playeract
 .block
 	; check enemy collision
+	; and colorcycle while hit
 	lda $d01e
 	and #%00000001
 	beq nocoll
@@ -313,18 +330,8 @@ isfall	; ------------
 	.block
 	jsr applygravity
 
-	; check if mob is on a platform
-	#moblda "xh"
-	tax
-	inx ; centre hitbox on sprite
-
-	#moblda "yh"
-	tay
-
-	jsr getsc ; trashes r3,r4
-
-	cmp #$80
-	bcc done ; not on a platform
+	jsr chkplatform ; trashes r3,r4
+	bpl done ; not on a platform
 
 	; stop falling
 	lda #0
@@ -375,23 +382,61 @@ done
 
 	.block
 	; check if mob is on a platform
-
-	#moblda "xh"
-	tax
-	inx ; centre hitbox on sprite
-
-	#moblda "yh"
-	tay
-
-	jsr getsc ; trashes r3,r4
-
-	cmp #$80
-	bcs done ; still on a platform
+	jsr chkplatform
+	bmi done ; still on a platform
 
 	#setalist "cffallanim"
 done
 	.bend
 	jmp donestates
+
+; check if catfox mob is on platform.
+; consider screencodes below it.
+; in: nothing (uses catfox mob struct)
+; out: a <- OR of screencodes considered
+; out: negative flag is set if on plat
+;   jsr chkplatform
+;   bpl noplatform
+;   ; handle "on platform"
+chkplatform
+	.block
+	; get screencodes starting at
+	; mobx+1 through mobx+2
+	; and current y addr
+
+; DEBUG
+;	lda catmob+mobyh
+;	adc #0-(spriteyoffs)
+;	sta mobcptl+mobyh
+;	sta mobcptr+mobyh
+;	lda #0
+;	sta mobcptl+mobxl
+;	sta mobcptr+mobxl
+; END DEBUG
+
+	lda catmob+mobyh
+	asl a
+	tay
+	lda scrlines,y
+	sta r3
+	iny
+	lda scrlines,y
+	sta r4
+
+	ldy catmob+mobxh
+	iny ; offset from left of sprit	
+
+;	sty mobcptl+mobxh ; DEBUG
+
+	; if any have high bit set,
+	; we are on a platform
+	; (need to OR them)
+	lda (r3),y
+	iny
+;	sty mobcptr+mobxh ; DEBUG
+	ora (r3),y
+	rts
+	.bend
 
 donestates
 	
@@ -1198,7 +1243,7 @@ vicupdate1
 	rol r2
 	rol a
 
-	adc #29 ; sprite y offset
+	adc #spriteyoffs
 	sta r3
 
 	; enable this sprite
@@ -1756,10 +1801,14 @@ printst
 	jsr CHKIN
 
 	ldx #0
+	ldy #0
 loop	jsr $ffb7  ; READST
 	bne eof
-	jsr $ffcf
+	jsr $ffcf  ; CHRIN
+	jsr ascii2sc
 	sta screen,x
+	lda #0
+	sta $d800,x
 	inx
 	bne loop
 
@@ -1767,6 +1816,30 @@ eof	lda #15
 	jsr CLOSE
 	jsr CLRCHN ;TODO restore file 2?
 	rts
+	.bend
+
+; convert ASCII/PETSCII to screencode
+; a <- ASCII code
+; a -> screen code
+ascii2sc
+	.block
+	cmp #32     ; ' '
+	beq noconv
+	cmp #33     ; '!'
+	beq noconv
+	cmp #42     ; '*'
+	beq noconv
+	cmp #48     ;numbers 0-9
+	bcs numconv
+conv
+	sec
+	sbc #$40
+noconv
+	rts
+numconv
+	cmp #58
+	bcc noconv
+	jmp conv
 	.bend
 
 ; === START only needed for level edit
