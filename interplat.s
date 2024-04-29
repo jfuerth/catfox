@@ -9,14 +9,22 @@ vb=screen & $c000 ; vic base addr
 ; when saving a screen
 cleancolorbuf=$0400
 
-; temporary vars and pointers
+; 00000   Z e r o  P a g e   00000
+; temporary vars
 r0=$02
 r1=$03
 r2=$04
 r3=$05
 r4=$06
+
+; game state
+mobptr=$07 ; and $08
+jumpttl=$09 ; ttl for jump button
+
+; temporary pointers
 ptr0=$fb ; $fc
 ptr1=$fd ; $fe
+; 00000    End Zero Page     00000
 
 ; mob struct
 mobxl=0
@@ -46,7 +54,7 @@ jfire= %00010000
 spriteyoffs=29 ; y pos is bottom of spr
 
 ; mobXXX functions: read/write mob
-; struct pointed to by ptr0
+; struct pointed to by mobptr
 
 ; load 8-bit mob prop into acc
 ; #moblda "colr"
@@ -54,7 +62,7 @@ spriteyoffs=29 ; y pos is bottom of spr
 ; y <- prop offset
 moblda	.macro
 	ldy #mob@1
-	lda (ptr0),y
+	lda (mobptr),y
 	.endm
 
 ; store 8-bit mob prop from acc
@@ -63,7 +71,7 @@ moblda	.macro
 ; y <- prop offset
 mobsta	.macro
 	ldy #mob@1
-	sta (ptr0),y
+	sta (mobptr),y
 	.endm
 
 ; load 16-bit mob prop into a and x
@@ -72,10 +80,10 @@ mobsta	.macro
 ; y <- prop offset
 mobldax	.macro
 	ldy #(mob@1+1)
-	lda (ptr0),y
+	lda (mobptr),y
 	tax
 	dey
-	lda (ptr0),y
+	lda (mobptr),y
 	.endm
 
 ; store 16-bit mob prop from a and x
@@ -84,10 +92,10 @@ mobldax	.macro
 ; y <- prop offset
 mobstax	.macro
 	ldy #(mob@1)
-	sta (ptr0),y
+	sta (mobptr),y
 	iny
 	txa
-	sta (ptr0),y
+	sta (mobptr),y
 	.endm
 
 ; test if current mob is disabled
@@ -95,7 +103,7 @@ mobstax	.macro
 ;   #ifmobdis "isdisabled"
 ifmobdis .segment
 	ldy #mobcolr
-	lda (ptr0),y
+	lda (mobptr),y
 	and #%10000000
 	bne @1
 	.endm
@@ -107,7 +115,7 @@ ifmobdis .segment
 ;   #ifmobxm "ne","label"
 ifmobxm	.segment
 	ldy #mobcolr
-	lda (ptr0),y
+	lda (mobptr),y
 	and #%01000000
 	b@1 @2
 	.endm
@@ -117,14 +125,14 @@ ifmobxm	.segment
 ;   #setmobxm 0  - facing right
 setmobxm .macro
 	ldy #mobcolr
-	lda (ptr0),y
+	lda (mobptr),y
 	.ifne \1
 	ora #%01000000
 	.endif
 	.ifeq \1
 	and #%10111111
 	.endif
-	sta (ptr0),y
+	sta (mobptr),y
 	.endm
 
 ; copy mob attribute from current mob
@@ -134,7 +142,7 @@ mobcpa .segment
 	tya
 	pha
 	ldy #@2
-	lda (ptr0),y
+	lda (mobptr),y
 	sta @1+@2
 	pla
 	tay
@@ -146,11 +154,11 @@ mobcpa .segment
 ; jump to given label if it is
 ifalist	.segment
 	ldy #mobalist
-	lda (ptr0),y
+	lda (mobptr),y
 	cmp #<@1
 	bne *+7 ; perf: skip hi byte?
 	iny
-	lda (ptr0),y
+	lda (mobptr),y
 	cmp #>@1
 	beq @2
 	.endm
@@ -476,10 +484,10 @@ goingright
 	beq donefriction ; not moving
 	sec
 	sbc #friction
-	sta (ptr0),y
+	sta (mobptr),y
 	#moblda "dxh"
 	sbc #0
-	sta (ptr0),y
+	sta (mobptr),y
 	; if 0 crossed, goingleft will
 	; clamp to 0 next frame
 	jmp donefriction
@@ -488,16 +496,16 @@ goingleft
 	#moblda "dxl"
 	clc
 	adc #friction
-	sta (ptr0),y
+	sta (mobptr),y
 	#moblda "dxh"
 	adc #0
-	sta (ptr0),y
+	sta (mobptr),y
 	; if 0 crossed, clamp to 0
 	bcc donefriction
 	lda #0
-	sta (ptr0),y
+	sta (mobptr),y
 	dey
-	sta (ptr0),y
+	sta (mobptr),y
 	jmp donefriction
 
 donefriction
@@ -507,17 +515,17 @@ donefriction
 	.bend
 
 ; apply pull of gravity to current mob
-; ptr0 - pointer to current mob
+; mobptr - pointer to current mob
 ; trashes a and y
 applygravity
 	.block
 	#moblda "dyl"
 	clc
 	adc #gravity
-	sta (ptr0),y
+	sta (mobptr),y
 	#moblda "dyh"
 	adc #0
-	sta (ptr0),y
+	sta (mobptr),y
 	rts
 	.bend
 
@@ -525,12 +533,12 @@ applygravity
 platstayact
 	.block
 	ldy #mobxh
-	lda (ptr0),y
+	lda (mobptr),y
 	sta r0
 	tax
 
 	ldy #mobyh
-	lda (ptr0),y
+	lda (mobptr),y
 	sta r1
 	tay
 
@@ -549,9 +557,9 @@ nofall
 	; stop dy
 	ldy #mobdyl
 	lda #0
-	sta (ptr0),y
+	sta (mobptr),y
 	iny
-	sta (ptr0),y
+	sta (mobptr),y
 
 	#ifalist "cfwalkanim","contwalk"
 	#setalist "cfwalkanim"
@@ -560,7 +568,7 @@ contwalk
 	; if nothing ahead: reverse dx
 	ldx r0 ; xh
 	ldy #mobdxh
-	lda (ptr0),y
+	lda (mobptr),y
 	bmi checkfall
 	inx ; look below right side
 	inx
@@ -572,12 +580,12 @@ checkfall ldy r1
 	lda #0
 	sec
 	ldy #mobdxl
-	sbc (ptr0),y
-	sta (ptr0),y
+	sbc (mobptr),y
+	sta (mobptr),y
 	iny
 	lda #0
-	sbc (ptr0),y
-	sta (ptr0),y
+	sbc (mobptr),y
+	sta (mobptr),y
 
 	bmi faceleft
 	#setmobxm 0
@@ -703,7 +711,7 @@ getsc
 	asl a
         tay
 
-	; store scr line addr to ptr0
+	; store scr line addr to r3/r4
 	lda scrlines,y
 	sta r3
 	iny
@@ -1008,10 +1016,10 @@ updateloop
 	asl a ; *2 for word offset
 	tax
 	lda mobtab,x
-	sta ptr0
+	sta mobptr
 	inx
 	lda mobtab,x
-	sta ptr0+1
+	sta mobptr+1
 	#ifmobdis "skip"
 	inc activemobs
 	jsr mobupdate1
@@ -1031,10 +1039,10 @@ mobupdate1
 	; jsr to mob's custom routine
 	; unless routine is $0000
 	ldy #mobact
-	lda (ptr0),y
+	lda (mobptr),y
 	sta actjsr+1
 	iny
-	lda (ptr0),y
+	lda (mobptr),y
 	sta actjsr+2
 	ora actjsr+1
 	beq skipact ; hi and low are 0
@@ -1046,46 +1054,46 @@ skipact
 ; apply dx
 	clc
 	ldy #mobdxl
-	lda (ptr0),y
+	lda (mobptr),y
 	ldy #mobxl
-	adc (ptr0),y
-	sta (ptr0),y
+	adc (mobptr),y
+	sta (mobptr),y
 	ldy #mobdxh
-	lda (ptr0),y
+	lda (mobptr),y
 	ldy #mobxh
-	adc (ptr0),y
-	sta (ptr0),y
+	adc (mobptr),y
+	sta (mobptr),y
 	
 ; apply dy
 	clc
 	ldy #mobdyl
-	lda (ptr0),y
+	lda (mobptr),y
 	ldy #mobyl
-	adc (ptr0),y
-	sta (ptr0),y
+	adc (mobptr),y
+	sta (mobptr),y
 	ldy #mobdyh
-	lda (ptr0),y
+	lda (mobptr),y
 	ldy #mobyh
-	adc (ptr0),y
-	sta (ptr0),y
+	adc (mobptr),y
+	sta (mobptr),y
 
 	; --- animation
 	ldy #mobattl
-	lda (ptr0),y
+	lda (mobptr),y
 	sec
 	sbc #1
 	beq nextaframe
-	sta (ptr0),y
+	sta (mobptr),y
 	jmp donealist
 
 nextaframe
 	; set animation frame
 	; put anim list ptr in r3/r4
 	ldy #mobalist
-	lda (ptr0),y
+	lda (mobptr),y
 	sta r3
 	iny
-	lda (ptr0),y
+	lda (mobptr),y
 	sta r4
 
 	; if alist pointer is null,
@@ -1097,7 +1105,7 @@ nextaframe
 	; into r0/r1
 fetchanimcode
 	ldy #mobaframe
-	lda (ptr0),y
+	lda (mobptr),y
 	sta r2 ; current list offset
 	tay
 	lda (r3),y
@@ -1113,7 +1121,7 @@ fetchanimcode
 	; goto frame in r1 (still in a)
 	asl ; frame offset is frame*2
 	ldy #mobaframe
-	sta (ptr0),y
+	sta (mobptr),y
 
 	; try again with new aframe offs
 	jmp fetchanimcode
@@ -1124,17 +1132,17 @@ newimg
 	lda r2
 	adc #2
 	ldy #mobaframe
-	sta (ptr0),y
+	sta (mobptr),y
 	
 	; set frame ttl counter
 	lda r1
 	ldy #mobattl
-	sta (ptr0),y
+	sta (mobptr),y
 
 	; update mobimg
 	lda r0 ; new image num
 	ldy #mobimg
-	sta (ptr0),y
+	sta (mobptr),y
 
 donealist ; end of alist processing
 	rts
@@ -1175,10 +1183,10 @@ updateloop
 	cpx #$ff
 	beq done
 	lda mobtab,x
-	sta ptr0+1
+	sta mobptr+1
 	dex
 	lda mobtab,x
-	sta ptr0
+	sta mobptr
 	dex
 	stx mobtabpos
 	#ifmobdis "updateloop"
@@ -1190,7 +1198,7 @@ done	rts
 mobtabpos .byte 0
 
 vicupdate1
-; in: ptr0 - mob struct pointer
+; in: mobptr - mob struct pointer
 ;     spritenum - vic sprite number
 ;     (call in desc order)
 
@@ -1206,10 +1214,10 @@ vicupdate1
 	; xoffs is exactly 3 chars wide
 	; and hi byte counts chars
 	ldy #mobxl
-	lda (ptr0),y
+	lda (mobptr),y
 	sta r0
 	ldy #mobxh
-	lda (ptr0),y
+	lda (mobptr),y
 	clc
 	adc #3
 
@@ -1231,10 +1239,10 @@ vicupdate1
 	; offset because we don't save
 	; the carry for y
 	ldy #mobyl
-	lda (ptr0),y
+	lda (mobptr),y
 	sta r2
 	ldy #mobyh
-	lda (ptr0),y
+	lda (mobptr),y
 	clc
 	rol r2
 	rol a
@@ -1263,13 +1271,13 @@ vicupdate1
 
 	; set colour
 	ldy #mobcolr
-	lda (ptr0),y
+	lda (mobptr),y
 	ldy spritenum
 	sta $d027,y
 
 	; set hw sprite to mobimg
 	ldy #mobimg
-	lda (ptr0),y
+	lda (mobptr),y
 	tax
 	#ifmobxm "eq","noflip"
 	clc
@@ -1492,6 +1500,7 @@ mirrorsprites
 ; x & y - lo and hi bytes of 1st sprite
 ; a - number of sprites to flip
 ;     (also offset of flipped sprites)
+; trashes ptr0
 	.block
 
 	stx ptr0 ; source pointer
@@ -1717,6 +1726,7 @@ rderr	jsr printst
 decrunch
 ; read bytes from open file and decode
 ; to target addr given by first 2 bytes
+; trashes ptr0
 	jsr CHRIN
 	sta ptr0
 	jsr CHRIN
@@ -1846,6 +1856,7 @@ numconv
 
 savescr
 ; saves screen at world coord x,y
+; trashes ptr0, r0, r1
 	.block
 	lda #0
 	sta $d015 ; disable all sprites
