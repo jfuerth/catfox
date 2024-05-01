@@ -205,11 +205,14 @@ sub16	.macro
 
 ; ----- settings ------
 wlkspd=85
-jumpspd=80 ; superjump is 100
-jumpframes=6 ; frames when button works
+jumpimpulse=20 ; first frame only
+jumpboost=10   ; subsequent frames
+jumpframes=8   ; boost frame limit
+gravity=3      ; standard gravity
+fallgrav=50    ; gravity when falling
+coyoteframes=4 ; jump after walkoff
+friction=20    ; left/right slowdown
 sitdelay=120
-gravity=3
-friction=20
 
 ; --------- start of code ---------
 *=$c000
@@ -327,10 +330,32 @@ isjump	; ------------
 	.block
 	jsr applygravity
 	; if +ve dy, we are falling
-	#moblda "dyh"
-	bmi nofall
+	bmi rising
+
+	; extra fall gravity
+	lda #<fallgrav
+	sta catmob+mobdyl
+	lda #>fallgrav
+	sta catmob+mobdyh
+
 	#setalist "cffallanim"
-nofall
+	bmi done
+rising
+	dec jumpttl
+	bmi done
+	lda #jfire
+	bit $dc00
+	bne done
+	; TODO consider #mobadd8/mobadd16
+	#mobldax "dyl"
+	sec
+	sbc #jumpboost
+	sta (mobptr),y
+	txa
+	iny
+	sbc #0
+	sta (mobptr),y
+done
 	jmp donestates
 	.bend
 
@@ -379,11 +404,14 @@ ckfire	lda #jfire
 	bit $dc00
 	bne done
 
-	lda #<($ffff-jumpspd)
+	lda #<($ffff-jumpimpulse)
 	sta catmob+mobdyl
-	lda #>($ffff-jumpspd)
+	lda #>($ffff-jumpimpulse)
 	sta catmob+mobdyh
 	
+	lda #jumpframes
+	sta jumpttl
+
 	#setalist "cfjumpanim"
 done
 	.bend
@@ -515,8 +543,10 @@ donefriction
 	.bend
 
 ; apply pull of gravity to current mob
-; mobptr - pointer to current mob
-; trashes a and y
+; mobptr -> pointer to current mob
+; a <- high byte of mobdy
+; N, V, Z, C flags <- reflects mobdy
+; trashes y
 applygravity
 	.block
 	#moblda "dyl"
