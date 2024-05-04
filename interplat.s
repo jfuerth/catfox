@@ -19,7 +19,8 @@ r4=$06
 
 ; game state
 mobptr=$07 ; and $08
-jumpttl=$09 ; ttl for jump button
+jumpttl=$09 ; ttl for jump boost
+coyotettl=$0a
 
 ; temporary pointers
 ptr0=$fb ; $fc
@@ -165,6 +166,8 @@ ifalist	.segment
 
 ; set current mob's anim list
 ; and reset to frame 0
+; a <- 1
+; Z <- false
 setalist .segment
 	lda #<@1
 	ldx #>@1
@@ -209,8 +212,8 @@ jumpimpulse=20 ; first frame only
 jumpboost=10   ; subsequent frames
 jumpframes=8   ; boost frame limit
 gravity=3      ; standard gravity
-fallgrav=50    ; gravity when falling
-coyoteframes=4 ; jump after walkoff
+fallgrav=40    ; gravity when falling
+coyoteframes=5 ; jump after walkoff
 friction=20    ; left/right slowdown
 sitdelay=120
 
@@ -364,8 +367,9 @@ isfall	; ------------
 	jsr applygravity
 
 	jsr chkplatform ; trashes r3,r4
-	bpl done ; not on a platform
+	bpl falling
 
+landed
 	; stop falling
 	lda #0
 	ldx #0
@@ -373,6 +377,19 @@ isfall	; ------------
 	#mobsta "yl" ; stay on top
 
 	#setalist "cfidleanim"
+	bne done
+
+falling
+	ldx coyotettl
+	dex
+	bmi done
+	stx coyotettl
+ckfire
+	lda #jfire
+	bit $dc00
+	bne done
+	jsr dojump
+	jmp done
 done
 	jmp donestates
 	.bend
@@ -400,19 +417,11 @@ iswalk	; --------------
 idlewalk
 
 	.block
-ckfire	lda #jfire
+ckfire
+	lda #jfire
 	bit $dc00
 	bne done
-
-	lda #<($ffff-jumpimpulse)
-	sta catmob+mobdyl
-	lda #>($ffff-jumpimpulse)
-	sta catmob+mobdyh
-	
-	lda #jumpframes
-	sta jumpttl
-
-	#setalist "cfjumpanim"
+	jsr dojump
 done
 	.bend
 
@@ -420,7 +429,8 @@ done
 	; check if mob is on a platform
 	jsr chkplatform
 	bmi done ; still on a platform
-
+	lda #coyoteframes
+	sta coyotettl
 	#setalist "cffallanim"
 done
 	.bend
@@ -430,7 +440,7 @@ done
 ; consider screencodes below it.
 ; in: nothing (uses catfox mob struct)
 ; out: a <- OR of screencodes considered
-; out: negative flag is set if on plat
+; out: N flag is set if on plat
 ;   jsr chkplatform
 ;   bpl noplatform
 ;   ; handle "on platform"
@@ -471,6 +481,22 @@ chkplatform
 	iny
 ;	sty mobcptr+mobxh ; DEBUG
 	ora (r3),y
+	rts
+	.bend
+
+dojump
+	.block
+	lda #<($ffff-jumpimpulse)
+	sta catmob+mobdyl
+	lda #>($ffff-jumpimpulse)
+	sta catmob+mobdyh
+	
+	lda #jumpframes
+	sta jumpttl
+	lda #0
+	sta coyotettl
+
+	#setalist "cfjumpanim"
 	rts
 	.bend
 
