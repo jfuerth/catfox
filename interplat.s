@@ -1813,7 +1813,7 @@ runlp	dey
 	beq next ; always
 
 dosim	jsr CHRIN
-	tay ; sim length/count
+	sta lenchk + 1 ; sim length
 	tax ; byte count for next
 	jsr CHRIN
 	sta r4 ; ptr0 - r4 = start addr
@@ -1824,10 +1824,11 @@ dosim	jsr CHRIN
 	lda ptr0+1
 	sbc #0
 	sta ptr1+1
-simlp	dey
+	ldy #$ff
+simlp	iny
 	lda (ptr1),y
 	sta (ptr0),y
-	cpy #0
+lenchk	cpy #0 ; selfmod, set above
 	bne simlp
 	
 next	; ptr0 += x

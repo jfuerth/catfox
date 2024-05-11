@@ -56,9 +56,25 @@ public class pexplode {
 
     }
 
+    /**
+     * Sets colour codes for spaces to the colour code of the cell to the left.
+     * This optimizes for run-length encoding by eliminating random colour
+     * variations where they can't be seen.
+     * <p>
+     * It's assumed that the space character is 0x20.
+     * 
+     * @return a cleaned version of the colour data.
+     */
     private static byte[] cleanColourData(byte[] charData, byte[] colourData) {
-        System.err.println("TODO: clean colour data");
-        return colourData;
+        byte[] cleaned = new byte[colourData.length];
+        for (int i = 0; i < charData.length; i++) {
+            if (i > 0 && charData[i] == 0x20) {
+                cleaned[i] = cleaned[i - 1];
+            } else {
+                cleaned[i] = colourData[i];
+            }
+        }
+        return cleaned;
     }
 
     private static byte[] flatten(List<int[]> intArrays) {
@@ -102,14 +118,14 @@ public class pexplode {
         ArrayList<Byte> compressed = new ArrayList<>();
         for (int i = 0; i < rawBytes.length;) {
             int runlen = findRun(rawBytes, i);
-            Repeat repeat = new Repeat(0, 0);// findRepeat(rawBytes, i);
+            Similarity repeat = findSim(rawBytes, i);
 
-            if (repeat.length() > runlen) {
-                System.err.printf("Found run length %d offset %d: %s", repeat.length, repeat.offset,
-                        sliceToString(rawBytes, i + repeat.offset, repeat.length));
+            if (repeat.length() > 3 && repeat.length() > runlen) {
+                System.err.printf("Using sim length %d start %d: %s%n", repeat.length(), repeat.start(),
+                        sliceToString(rawBytes, repeat.start(), repeat.length()));
                 compressed.add((byte) 0xfe);
                 compressed.add((byte) repeat.length());
-                compressed.add((byte) (i - repeat.offset()));
+                compressed.add((byte) (i - repeat.start()));
                 i += repeat.length();
             } else if (runlen > 2) {
                 compressed.add((byte) 0xff);
@@ -139,7 +155,7 @@ public class pexplode {
             int i,
             ArrayList<Byte> compressed,
             int runlen,
-            pexplode.Repeat repeat) {
+            pexplode.Similarity repeat) {
         int stopCodeIndex = Collections.indexOfSubList(
                 compressed,
                 List.of(
@@ -154,51 +170,93 @@ public class pexplode {
     private static Object sliceToString(byte[] rawBytes, int start, int length) {
         StringBuilder sb = new StringBuilder(length);
         for (int i = start; start + i < length; i++) {
-            sb.append((char) rawBytes[i]);
+            int ch = rawBytes[i];
+            if (ch < ' ' || ch > '~') {
+                sb.append('?');
+            } else {
+                sb.append((char) ch);
+            }
         }
         return sb.toString();
     }
 
-    // i 0 1 2 3 4 5 6 7 8
-    //   . . . . a a a a b
-    // startPos = 4
-    // ch = 'a'
-    // i = 5
+    /**
+     * Returns the length of the run starting at i, up to the maximum
+     * length 255.
+     */
     private static int findRun(byte[] rawBytes, int i) {
         final int startPos = i;
         int ch = rawBytes[i];
         do {
             i++;
-        } while (i - startPos <= 255
+        } while (i - startPos < 255
                 && i < rawBytes.length
                 && rawBytes[i] == ch);
-        return i - 1 - startPos;
+        return i - startPos;
     }
 
-    record Repeat(int offset, int length) {
+    record Similarity(int start, int length) {
+        
+        public static final Similarity NONE = new Similarity(0, 0);
+
+        public Similarity {
+            if (length < 0 || length > 255) throw new AssertionError("Length %d out of range".formatted(length));
+            if (start < 0) throw new AssertionError("Start %d out of range".formatted(start));
+        }
+
+        public boolean isLongerThan(Similarity other) {
+            return this.length > other.length;
+        }
     }
 
-    private static pexplode.Repeat findRepeat(byte[] rawBytes, final int startOffs) {
-        if (startOffs < 3) {
-            return new Repeat(0, 0);
-        }
-
-        int bestMatchStart = Math.max(0, startOffs - 255);
-        int bestMatchLen = 0;
-        for (int i = bestMatchStart; i + bestMatchStart < startOffs; i++) {
-            System.err.printf("bestMatchStart = %d, bestMatchLen = %d, i = %d%n", bestMatchStart, bestMatchLen, i);
-            int j = 0;
-            while (startOffs + j < rawBytes.length && rawBytes[i + j] == rawBytes[startOffs + j]) {
-                System.err.printf("rawBytes[%d] == rawBytes[%d] == '%c' (%d)%n", i + j, startOffs + j,
-                        (char) rawBytes[i + j], rawBytes[i + j]);
-                j++;
+    /**
+     * Finds the maximal sequence of bytes starting startIdx which is a repeat of
+     * bytes starting at some earlier index.
+     * <p> 
+     * The similarity can overlap regions past startIdx, but it will always start
+     * at least one character behind (or else the decoder would need to predict
+     * the future!):
+     * <p>
+     * Example 1: overlap
+     * <pre>
+     * In:   AAAABBCDDDAAAABBCDDD
+     *        ^ startIdx = 1
+     * 
+     * Out:  ^ start = 0
+     *           ^ length = 3
+     * </pre>
+     * 
+     * Example 2: no overlap
+     * <pre>
+     * In:   AAAABBCDDDAAAABBCDDD
+     *                 ^ startIdx = 10
+     * 
+     * Out:  ^ start = 0
+     *                 ^ length = 10
+     * </pre>
+     * 
+     * @param rawBytes The array to search for a similar subsequence within.
+     * @param startIdx The start index for the search
+     * @return a similarity that points to the start index of the sequence that's
+     * repeated at startIdx, and its length. The similar sequence will start no
+     * more than 255 characters before startIdx, and will have length no more than
+     * 255. 
+     */
+    private static pexplode.Similarity findSim(byte[] rawBytes, final int startIdx) {
+        Similarity bestSim = Similarity.NONE;
+        for (int i = Math.max(startIdx - 255, 0); i < startIdx; i++) {
+            int r = i; // rear pointer
+            int f = startIdx; // forward pointer
+            while (f < rawBytes.length && rawBytes[r] == rawBytes[f] && f - startIdx < 255) {
+                r++;
+                f++;
             }
-            if (j > bestMatchLen) {
-                bestMatchLen = j;
-                bestMatchStart = i;
+            Similarity sim = new Similarity(i, f - startIdx);
+            if (sim.isLongerThan(bestSim)) {
+                bestSim = sim;
             }
         }
-        return new Repeat(bestMatchStart, bestMatchLen);
+        return bestSim;
     }
 
     static void writePrgFile(String filename, int loadAddress, byte[] bytes) {
