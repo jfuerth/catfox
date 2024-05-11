@@ -28,3 +28,8 @@ catfox_spritenums.s: catsprites.s
 # screens
 # TODO set up targets for this
 # make screen_convert && ./screen_convert < ~/Downloads/sc0300.prg > sc0300 && hexdump -C sc0300 && ./decrunch < sc0300 
+
+# TODO make the BASIC loader an autostart
+# TODO dynamically add screens to the disk image
+catfox.d64: *.prg
+	c1541 -format catfox,cf d64 catfox.d64 -attach catfox.d64 -write catfox.prg -write interplat.prg interplat -write catsprites.prg catsprites -write cornersprites.prg cornersprites -write bgchars.prg bgchars -write sc0000 sc0000 -write sc0100 sc0100 -write sc0200 sc0200 -write sc0300 sc0300
