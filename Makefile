@@ -25,10 +25,6 @@ catfox_spritenums.s: catsprites.s
 %.s: %.txt %_addr.txt
 	cat $*_addr.txt $*.txt | sed 's/://' | sed 's/..A .*//' | sed 's/\/\//;/' > $@
 
-# screens
-# TODO set up targets for this
-# make screen_convert && ./screen_convert < ~/Downloads/sc0300.prg > sc0300 && hexdump -C sc0300 && ./decrunch < sc0300 
-
 # TODO make the BASIC loader an autostart
 # TODO dynamically add screens to the disk image
 catfox.d64: *.prg
