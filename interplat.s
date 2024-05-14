@@ -277,18 +277,21 @@ nocoll	lda catmob+mobcolr
 
 donecoll
 	; check for edge of screen
-	#mobldax "xl"
+	ldx catmob+mobxh
 	cpx #0
 	beq scrleft
 	cpx #38
 	beq scrright
-
-	; TODO up/down
+	ldy catmob+mobyh
+	cpy #$ff ; above top
+	beq scrup
+	cpy #24
+	beq scrdown
 
 	jmp dostates
 
 scrleft
-	; dec x unless at left edge
+	; dec x unless at left of world
 	ldx wantscr
 	beq donescr
 	dex
@@ -301,7 +304,7 @@ scrleft
 	bne donescr ; always
 	
 scrright
-	; inc x unless at right edge
+	; inc x unless at right of world
 	ldx wantscr
 	inx
 	beq donescr
@@ -312,7 +315,33 @@ scrright
 	ldx #1
 	#mobstax "xl"
 	bne donescr ; always
-	
+
+scrup
+	; inc y unless at top of world
+	ldy wantscr+1
+	iny
+	beq donescr
+	sty wantscr+1
+
+	; move player to bottom
+	lda #0
+	ldx #23
+	#mobstax "yl"
+	bne donescr ; always
+
+scrdown
+	; dec y unless at top of world
+	ldy wantscr+1
+	beq donescr
+	dey
+	sty wantscr+1
+
+	; move player to top
+	lda #0
+	ldx #1
+	#mobstax "yl"
+	bne donescr ; always
+
 donescr
 
 
@@ -808,6 +837,15 @@ init
 
 	lda #14
 	sta $d021
+
+	; multi-color mode
+	lda $d016
+	ora #$f0
+	sta $d016
+	lda #7
+	sta $d022
+	lda #9
+	sta $d023
 
 	; reset globals
 	; (in case of restart)
@@ -1697,6 +1735,7 @@ openscrfile
 	; y low nybble
 	lda r1
 	and #$0f
+	tax
 	lda hexchr,x
 	sta scfnam+8
 	
