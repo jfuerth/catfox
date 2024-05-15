@@ -4,6 +4,7 @@
 *.prg.labels
 *.bak
 *.swp
+assets/
 
 # intermediate files
 bgchars.s
