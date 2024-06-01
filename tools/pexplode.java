@@ -2,21 +2,36 @@
 //DEPS com.fasterxml.jackson.core:jackson-databind:2.17.1
 //DEPS info.picocli:picocli:4.7.6
 
+import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.PrintWriter;
 import java.io.UncheckedIOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.core.StreamReadFeature;
 import com.fasterxml.jackson.core.exc.StreamReadException;
 import com.fasterxml.jackson.databind.DatabindException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+
+import picocli.CommandLine;
+import picocli.CommandLine.IExecutionExceptionHandler;
+import picocli.CommandLine.Option;
+import picocli.CommandLine.Parameters;
+import picocli.CommandLine.ParseResult;
 
 public class pexplode {
 
@@ -26,34 +41,214 @@ public class pexplode {
             .build();
 
     public static void main(String... args) throws StreamReadException, DatabindException, IOException {
-        // read project file
-        PetsciiProjectEnvelope outerProject = objectMapper.readValue(System.in, PetsciiProjectEnvelope.class);
-        PetsciiProject innerProject = objectMapper.readValue(lzwDecompress(outerProject.data()), PetsciiProject.class);
+        int result = new CommandLine(new PetsciiEditExploder())
+                .setExecutionExceptionHandler(new UserFacingExceptionHandler())
+                .execute(args);
+        System.exit(result);
+    }
 
-        // output charsets
-        for (CharsetBitmaps cs : innerProject.charsets()) {
-            // TODO naming scheme for overriding load address
-            // TODO command line arg for default charset address
-            writePrgFile(
-                    cs.name() + ".prg",
-                    0x4000,
-                    flatten(cs.bitmaps()));
+    static class PetsciiEditExploder implements Runnable {
+
+        @Option(names = {
+                "--charsets" }, defaultValue = "*", description = "Names of charsets to process. Glob matching is supported.")
+        Set<String> charsetGlobs;
+
+        @CommandLine.Option(names = { "-l", "--load-addr" }, description = """
+                Set or override load address (4-digit hex) for an asset.
+                The asset name is a glob, matched case-insensitively by name.
+                This option overrides any load address specified in a part's name.
+                For screens, this sets the load address of the character matrix.
+                Use --color-load-address to set the load address of the colour matrix.
+                """)
+        Map<String, String> loadAddresses = new LinkedHashMap<>();
+
+        @CommandLine.Option(names = { "-c", "--color-load-addr", "--colour-load-addr" }, description = """
+                Set or override load address (4-digit hex) for a screen's colour matrix.
+                All colour matrix load addresses otherwise default to $d800.
+                """)
+        Map<String, String> colorLoadAddresses = new LinkedHashMap<>();
+
+        @Parameters(description = "PETSCII Editor (.pe) file to read")
+        Path inputFile;
+
+        @Override
+        public void run() {
+            downcaseKeys(loadAddresses);
+            downcaseKeys(colorLoadAddresses);
+
+            PetsciiProject peProject;
+            try {
+                PetsciiProjectEnvelope envelope = objectMapper.readValue(inputFile.toFile(),
+                        PetsciiProjectEnvelope.class);
+                peProject = objectMapper.readValue(lzwDecompress(envelope.data()), PetsciiProject.class);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+
+            // output charsets
+            for (CharsetBitmaps cs : peProject.charsets()) {
+                if (matchesAnyGlob(cs.name(), charsetGlobs))
+                    writePrgFile(
+                            cs.name() + ".prg",
+                            determineLoadAddress(cs.name()),
+                            flatten(cs.bitmaps()));
+            }
+
+            // output screens
+            for (Screen s : peProject.screens()) {
+                byte[] charData = flatten(s.charData());
+                byte[] colourData = flatten(s.colorData());
+                writeCrunchedFile(s.name(), Map.of(
+                        determineLoadAddress(s.name), charData,
+                        determineColorLoadAddress(s.name), cleanColourData(charData, colourData)));
+            }
+
+            // output sprites
+            // at this point, we want all sprites mashed consecutively into one file,
+            // and a companion include file that defines sprite numbers, which is
+            // [address within vic bank] / 64.
+            // Sometimes you'd want something else, for example if you need to load some
+            // sprites separately for different screens or phases of the game.
+            // Parameterizing all of this is possible but maybe not worth it at this stage
+            // since the eventual requirements aren't known.
+            final int firstSpriteAddr = 0x4c00;
+            final String spriteSetName = "sprites";
+            final File spritenumsFile = new File(spriteSetName + "_nums.s");
+            final File spriteDataFile = new File(spriteSetName + ".prg");
+
+            int nextSpriteAddr = firstSpriteAddr;
+            try (PrintWriter spriteNumsOut = new PrintWriter(spritenumsFile);
+                    OutputStream dataOut = new FileOutputStream(spriteDataFile)) {
+                
+                // load address
+                writeWord(dataOut, nextSpriteAddr);
+
+                spriteNumsOut.printf("%s_first=%d%n", spriteSetName, vicSpriteNum(nextSpriteAddr));
+                for (SpriteSet ss : peProject.spriteSets()) {
+                    for (int i = 0; i < ss.sprites().size(); i++) {
+                        Sprite s = ss.sprites().get(i);
+                        int numberInUi = i + 1;
+                        String name = ss.name() + "_" + numberInUi;
+
+                        spriteNumsOut.printf("%s=%d ; addr=%04x%n", name, vicSpriteNum(nextSpriteAddr), nextSpriteAddr);
+
+                        for (int[] spriteBits : s.bitmapData) {
+                            byte b = condenseBits(spriteBits);
+                            dataOut.write(b);
+                        }
+                        dataOut.write((byte) 0); // pad to 64 bytes
+
+                        nextSpriteAddr += 64;
+                    }
+                }
+                spriteNumsOut.printf("%s_last=%d%n", spriteSetName, vicSpriteNum(nextSpriteAddr));
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
         }
 
-        // output screens
-        for (Screen s : innerProject.screens()) {
-            // TODO naming scheme for overriding load address
-            // TODO command line arg for default screen address
-            // TODO crunch the screen
-            byte[] charData = flatten(s.charData());
-            byte[] colourData = flatten(s.colorData());
-            writeCrunchedFile(s.name(), Map.of(
-                    0x4800, charData,
-                    0xd800, cleanColourData(charData, colourData)));
+        /** Returns the VIC-II sprite number for the given address */
+        private int vicSpriteNum(int nextSpriteAddr) {
+            return (nextSpriteAddr & 0x3fff) / 64;
         }
 
-        // output sprites
+        /**
+         * Takes an 8-element array of 0s and 1s (MSB first) and returns the corresponding byte.
+         */
+        private byte condenseBits(int[] spriteBits) {
+            if (spriteBits.length != 8) {
+                throw new IllegalArgumentException("spriteBits.length is " + spriteBits.length + "; expected 8");
+            }
+            int b = 0;
+            for (int i = 0; i < 8; i++) {
+                int v = spriteBits[i];
+                if (v != 0 && v != 1) {
+                    throw new IllegalArgumentException("spriteBits[" + i + "] is " + spriteBits[i] + "; expected 1 or 0");
+                }
+                b = b << 1;
+                b |= v;
+            }
+            return (byte) (b & 0xff);
+        }
 
+        static class OutputMode {
+        }
+
+        private void downcaseKeys(Map<String, ?> map) {
+            map.keySet().forEach(String::toLowerCase);
+        }
+
+        private static boolean matchesAnyGlob(String value, Collection<String> globs) {
+            // convert globs to regex
+            StringBuilder sb = new StringBuilder();
+            sb.append("(");
+            for (String glob : globs) {
+                if (sb.length() > 1) {
+                    sb.append("|");
+                }
+                String[] parts = glob.splitWithDelimiters("[*?]", 0);
+                for (int i = 0; i < parts.length; i++) {
+                    // add the literal part
+                    if (parts[i].length() > 0) {
+                        sb.append("\\Q").append(parts[i]).append("\\E");
+                    }
+                    // add the wildcard part (unless at end of input)
+                    if (++i < parts.length) {
+                        sb.append(switch (parts[i]) {
+                            case "*" -> ".*";
+                            case "?" -> ".";
+                            default -> throw new AssertionError("Unexpected glob char " + parts[i]);
+                        });
+                    }
+                }
+            }
+            sb.append(")");
+            return value.matches(sb.toString());
+        }
+
+        private static final Pattern PART_NAME_LOAD_ADDRESS_PATTERN = Pattern.compile("\\$([0-9a-fA-F]+)");
+
+        private int determineLoadAddress(String name) {
+            return determineLoadAddress(name, loadAddresses, null);
+        }
+
+        private int determineColorLoadAddress(String name) {
+            return determineLoadAddress(name, colorLoadAddresses, 0xd800);
+        }
+
+        private static int determineLoadAddress(String name, Map<String, String> nameMap, Integer defaultValue) {
+            Matcher partNameMatcher = PART_NAME_LOAD_ADDRESS_PATTERN.matcher(name);
+            String override = getByGlob(nameMap, name.toLowerCase());
+            if (override != null) {
+                return Integer.valueOf(override, 16);
+            } else if (partNameMatcher.find()) {
+                return Integer.valueOf(partNameMatcher.group(1), 16);
+            } else if (defaultValue != null) {
+                return defaultValue;
+            }
+            throw new UserFacingException(
+                    "Can't determine load address for \"%s\"".formatted(name),
+                    """
+                            Either add a load address to the name of the part (like \"%s $a000\")
+                            or specify it on the command line with --load-addr='%s=a000'.
+                            """.formatted(name, name));
+        }
+
+        /**
+         * Finds a value in a map whose keys are globs.
+         * 
+         * @param m          The map. Keys are treated as globs.
+         * @param literalKey The key to match against the globs in the map's key set.
+         * @return The value from the first mapping that matches the given literal key.
+         */
+        private static String getByGlob(Map<String, String> m, String literalKey) {
+            for (var entry : m.entrySet()) {
+                if (matchesAnyGlob(literalKey, Set.of(entry.getKey()))) {
+                    return entry.getValue();
+                }
+            }
+            return null;
+        }
     }
 
     /**
@@ -89,6 +284,11 @@ public class pexplode {
         return result;
     }
 
+    private static void writeWord(OutputStream out, int word) throws IOException {
+        out.write((byte) (word & 0xff));
+        out.write((byte) (word >> 8 & 0xff));
+    }
+
     private static void writeCrunchedFile(String filename, Map<Integer, byte[]> segments) {
         System.err.printf("Writing %s%n", filename);
         try (OutputStream out = new FileOutputStream(filename)) {
@@ -96,8 +296,7 @@ public class pexplode {
                 int addr = segment.getKey();
                 byte[] rawBytes = segment.getValue();
 
-                out.write((byte) (addr & 0xff));
-                out.write((byte) (addr >> 8 & 0xff));
+                writeWord(out, addr);
                 byte[] crunchedBytes = crunch(rawBytes);
                 out.write(crunchedBytes);
 
@@ -196,12 +395,14 @@ public class pexplode {
     }
 
     record Similarity(int start, int length) {
-        
+
         public static final Similarity NONE = new Similarity(0, 0);
 
         public Similarity {
-            if (length < 0 || length > 255) throw new AssertionError("Length %d out of range".formatted(length));
-            if (start < 0) throw new AssertionError("Start %d out of range".formatted(start));
+            if (length < 0 || length > 255)
+                throw new AssertionError("Length %d out of range".formatted(length));
+            if (start < 0)
+                throw new AssertionError("Start %d out of range".formatted(start));
         }
 
         public boolean isLongerThan(Similarity other) {
@@ -212,12 +413,13 @@ public class pexplode {
     /**
      * Finds the maximal sequence of bytes starting startIdx which is a repeat of
      * bytes starting at some earlier index.
-     * <p> 
+     * <p>
      * The similarity can overlap regions past startIdx, but it will always start
      * at least one character behind (or else the decoder would need to predict
      * the future!):
      * <p>
      * Example 1: overlap
+     * 
      * <pre>
      * In:   AAAABBCDDDAAAABBCDDD
      *        ^ startIdx = 1
@@ -227,6 +429,7 @@ public class pexplode {
      * </pre>
      * 
      * Example 2: no overlap
+     * 
      * <pre>
      * In:   AAAABBCDDDAAAABBCDDD
      *                 ^ startIdx = 10
@@ -238,9 +441,11 @@ public class pexplode {
      * @param rawBytes The array to search for a similar subsequence within.
      * @param startIdx The start index for the search
      * @return a similarity that points to the start index of the sequence that's
-     * repeated at startIdx, and its length. The similar sequence will start no
-     * more than 255 characters before startIdx, and will have length no more than
-     * 255. 
+     *         repeated at startIdx, and its length. The similar sequence will start
+     *         no
+     *         more than 255 characters before startIdx, and will have length no
+     *         more than
+     *         255.
      */
     private static pexplode.Similarity findSim(byte[] rawBytes, final int startIdx) {
         Similarity bestSim = Similarity.NONE;
@@ -262,8 +467,7 @@ public class pexplode {
     static void writePrgFile(String filename, int loadAddress, byte[] bytes) {
         System.err.printf("Writing %s ($%x)%n", filename, loadAddress);
         try (OutputStream out = new FileOutputStream(filename)) {
-            out.write((byte) (loadAddress & 0xff));
-            out.write((byte) (loadAddress >> 8 & 0xff));
+            writeWord(out, loadAddress);
             out.write(bytes);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
@@ -378,5 +582,33 @@ public class pexplode {
         }
 
         return decompressed.toString();
+    }
+
+    static class UserFacingException extends RuntimeException {
+        private final String advice;
+
+        public UserFacingException(String message, String advice) {
+            super(message);
+            this.advice = advice;
+        }
+
+        public String advice() {
+            return advice;
+        }
+    }
+
+    static class UserFacingExceptionHandler implements IExecutionExceptionHandler {
+        public int handleExecutionException(Exception ex, CommandLine cmd, ParseResult parseResult) {
+            if (ex instanceof UserFacingException ufex) {
+                cmd.getErr().println(cmd.getColorScheme().errorText("Error: " + ex.getMessage()));
+                cmd.getErr().println(cmd.getColorScheme().text(ufex.advice()));
+            } else {
+                cmd.getErr().println(cmd.getColorScheme().richStackTraceString(ex));
+            }
+
+            return cmd.getExitCodeExceptionMapper() != null
+                    ? cmd.getExitCodeExceptionMapper().getExitCode(ex)
+                    : cmd.getCommandSpec().exitCodeOnExecutionException();
+        }
     }
 }

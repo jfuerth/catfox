@@ -1,5 +1,5 @@
 
-.include "catfox_spritenums.s"
+.include "target/sprites_nums.s"
 
 screen=$4800
 spriteimg=screen+1024-8
@@ -698,7 +698,7 @@ mobcptl ; top left marker mob
 	.word $1000 ; y pos
 	.word 0 ; dy
 	.byte 7 ; color & flags
-	.byte 252 ; sprite img num
+	.byte corner_1 ; sprite img num
 	.word 0 ; alist addr
 	.byte 0 ; aframe
 	.byte 0 ; attl
@@ -709,29 +709,29 @@ mobcptr ; top right marker mob
 	.word $1000 ; y pos
 	.word 0 ; dy
 	.byte 7 ; color & flags
-	.byte 253 ; sprite img num
+	.byte corner_2 ; sprite img num
 	.word 0 ; alist addr
 	.byte 0 ; aframe
 	.byte 0 ; attl
 	.word 0 ; action
-mobcpbl ; top left marker mob
+mobcpbl ; bottom left marker mob
 	.word $0200 ; x pos
 	.word 0 ; dx
 	.word $1400 ; y pos
 	.word 0 ; dy
 	.byte 7 ; color & flags
-	.byte 254 ; sprite img num
+	.byte corner_3 ; sprite img num
 	.word 0 ; alist addr
 	.byte 0 ; aframe
 	.byte 0 ; attl
 	.word 0 ; action
-mobcpbr ; top left marker mob
+mobcpbr ; bottom right marker mob
 	.word $0600 ; x pos
 	.word 0 ; dx
 	.word $1400 ; y pos
 	.word 0 ; dy
 	.byte 7 ; color & flags
-	.byte 255 ; sprite img num
+	.byte corner_4 ; sprite img num
 	.word 0 ; alist addr
 	.byte 0 ; aframe
 	.byte 0 ; attl
@@ -946,9 +946,9 @@ tminit	.macro
 	; has to be done with intrpt
 	; disabled because it uses zp
 	sei
-	lda #numsprites
-	ldx #<((firstsprite*64) . vb)
-	ldy #>((firstsprite*64) . vb)
+	lda #(sprites_last - sprites_first)
+	ldx #<((sprites_first*64) . vb)
+	ldy #>((sprites_first*64) . vb)
 	jsr mirrorsprites
 
 install
@@ -1036,28 +1036,28 @@ differ	sec
 
 ; --------- animation ---------
 cfidleanim
-	.byte catfox_stand_0,60
-	.byte catfox_sitting_0,4
+	.byte catfox_stand_1,60
 	.byte catfox_sitting_1,4
 	.byte catfox_sitting_2,4
-	.byte catfox_sitting_3,250
+	.byte catfox_sitting_3,4
+	.byte catfox_sitting_4,250
 	.byte 0,4 ; stay on last
 
 cfjumpanim
-	.byte catfox_jump_0,10
 	.byte catfox_jump_1,10
+	.byte catfox_jump_2,10
 	.byte 0,1
 
 cfwalkanim
-	.byte catfox_run_0,6
-	.byte catfox_run_1,8
-	.byte catfox_run_2,10
-	.byte catfox_run_3,6
+	.byte catfox_run_1,6
+	.byte catfox_run_2,8
+	.byte catfox_run_3,10
+	.byte catfox_run_4,6
 	.byte 0,0 ; goto frame 0
 
 cffallanim
-	.byte catfox_fall_0,4
 	.byte catfox_fall_1,4
+	.byte catfox_fall_2,4
 	.byte 0,0 ; goto frame 0
 
 ; --------- mobs ---------
@@ -1376,7 +1376,7 @@ vicupdate1
 	#ifmobxm "eq","noflip"
 	clc
 	txa ; macro wiped a
-	adc #numsprites
+	adc #(sprites_last - sprites_first)
 	tax
 noflip	txa
 	ldy spritenum

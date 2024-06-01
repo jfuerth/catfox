@@ -1,6 +1,5 @@
-l "interplat.prg" 0
-pb "interplat.prg.labels"
-l "catsprites.prg" 0
-l "cornersprites.prg" 0
-l "bgchars.prg" 0
+l "target/interplat.prg" 0
+pb "target/interplat.prg.labels"
+l "target/sprites.prg" 0
+l "target/bgchars-mc $4000.prg" 0
 g $c000
