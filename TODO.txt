@@ -11,9 +11,9 @@ To do:
   - make fine positioning work (it's too fast right now--needs initial delay)
   - reset screen
 - enemies
+  - fix platstayact: too shy of left-hand falls (add similar fix as main player logic)
   - getting arrested (resets screen)
-  - implement enemy patterns
-  - draw enemy sprites
+  - implement more enemy patterns
 - levels
   - optimize charset - some of the symmetrical chars are redundant
 - bugs

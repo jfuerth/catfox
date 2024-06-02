@@ -27,7 +27,7 @@ ptr0=$fb ; $fc
 ptr1=$fd ; $fe
 ; 00000    End Zero Page     00000
 
-; mob struct
+; mob struct indices
 mobxl=0
 mobxh=1
 mobdxl=2
@@ -617,18 +617,20 @@ applygravity
 ; ---- mob action: stay on platform
 platstayact
 	.block
-	ldy #mobxh
-	lda (mobptr),y
-	sta r0
-	tax
 
 	ldy #mobyh
 	lda (mobptr),y
-	sta r1
-	tay
+	sta r1 ; screen y coord
 
-	inx ; look below middle
-	jsr getsc
+	jsr pointsc ; screen line addr r3
+
+	ldy #mobxh
+	lda (mobptr),y
+	sta r0 ; screen x coord
+	tay
+	iny ; middle of sprite
+
+	lda (r3),y ; screen code below mob
 
 	; if nothing under: fall
 	cmp #$80
@@ -645,6 +647,8 @@ nofall
 	sta (mobptr),y
 	iny
 	sta (mobptr),y
+	ldy #mobyl
+	sta (mobptr),y
 
 	#ifalist "cfwalkanim","contwalk"
 	#setalist "cfwalkanim"
@@ -652,13 +656,14 @@ contwalk
 
 	; if nothing ahead: reverse dx
 	ldx r0 ; xh
-	ldy #mobdxh
-	lda (mobptr),y
-	bmi checkfall
+	#moblda "dxh"
+	bmi checkcliff
 	inx ; look below right side
 	inx
-checkfall ldy r1
-	jsr getsc
+checkcliff
+	txa
+	tay
+	lda (r3),y ; stepping toward this
 	cmp #$80
 	bcs done
 ; no platform ahead: negate mobdx
@@ -771,7 +776,10 @@ d	lda #jdown
 	inc mobcptr+mobyh
 	inc mobcpbl+mobyh
 	inc mobcpbr+mobyh
-f
+f	lda #jfire
+	bit $dc01
+	;; TODO lay down a character
+
 done
 	rts
 ; need 4 mobs: tl, tr, bl, br
@@ -784,17 +792,27 @@ done
 ;  C= N: save as new stamp
 	.bend
 
-getsc
-; get screencode at x,y
-; x -> horizontal char pos 0..39
-; y -> vertical char pos 0..24
-; a <- screencode at x,y
-; trashes r3&r4
+setsc
+; set screencode at x,y to a
+	.block
+	TODO
+	.bend
+
+pointsc
+; point r3&r4 at at screen line y
+; example:
+;  ldy #5  ; row 5 from top
+;  jsr pointsc
+;  lda #somecharcode
+;  ldy #20 ; column 20
+;  sta (r3),y
+; a -> vertical char pos 0..24
+; r3&r4 <- pointer to start of line
+; trashes y
 	.block
 	; find line addr in table
-	tya    ; y coord
 	asl a
-        tay
+    tay
 
 	; store scr line addr to r3/r4
 	lda scrlines,y
@@ -802,9 +820,6 @@ getsc
 	iny
 	lda scrlines,y
 	sta r4
-	txa
-	tay  ; x coord
-	lda (r3),y
 	rts
 	.bend
 
@@ -901,7 +916,7 @@ init
 	lda #2
 	sta testmob+mobcolr
 
-	lda #wlkspd
+	lda #(wlkspd/2)
 	sta testmob+mobdxl
 	lda #0
 	sta testmob+mobdxh
@@ -928,7 +943,7 @@ tminit	.macro
 	lda #\4
 	sta tm@1+mobcolr
 
-	lda #(wlkspd+(\4*4))
+	lda #(wlkspd/(\4))
 	sta tm@1+mobdxl
 	lda #0
 	sta tm@1+mobdxh
@@ -939,8 +954,8 @@ tminit	.macro
 	sta tm@1+mobact+1
 	.endm
 
-	#tminit "2",4,4,3
-	#tminit "3",8,4,4
+	#tminit "2",20,4,3
+	#tminit "3",15,4,4
 	
 	; mirror sprite images
 	; has to be done with intrpt
@@ -1116,12 +1131,15 @@ updateloop
 	sta mobptr+1
 	#ifmobdis "skip"
 	inc activemobs
+	; TODO mark temporary out of bounds (maybe in MSB of xh?)
 	jsr mobupdate1
-skip	inc mobtabpos
+skip
+	inc mobtabpos
 	bne updateloop ; always taken
 
-done	ldx activemobs
-	txa
+done
+	ldx activemobs
+	txa ; return mobcount
 	rts
 mobtabpos .byte 0
 activemobs .byte 0
@@ -1274,8 +1292,7 @@ vicupdate
 	; loop counts down from mobtabsz
 updateloop
 	ldx mobtabpos
-	cpx #$ff
-	beq done
+	bmi done ; wrapped to $ff
 	lda mobtab,x
 	sta mobptr+1
 	dex
@@ -1295,7 +1312,8 @@ vicupdate1
 ; in: mobptr - mob struct pointer
 ;     spritenum - vic sprite number
 ;     (call in desc order)
-
+; caller should ensure x&y coords are
+; not so large that they wrap around
 
 	; calc pixel positions
 
@@ -1323,9 +1341,9 @@ vicupdate1
 	rol a
 	rol r0
 	rol a
-	sta r1
+	sta r1 ;lo 8 bits x pos on screen
 
-	; x overflow to msb
+	; 9th bit of x into sprite msb reg
 	rol $d010
 
 	; calc y pixel pos -> r3
