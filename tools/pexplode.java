@@ -10,7 +10,6 @@ import java.io.PrintWriter;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -47,7 +46,38 @@ public class pexplode {
         System.exit(result);
     }
 
+    static class UserFacingException extends RuntimeException {
+        private final String advice;
+
+        public UserFacingException(String message, String advice) {
+            super(message);
+            this.advice = advice;
+        }
+
+        public String advice() {
+            return advice;
+        }
+    }
+
+    static class UserFacingExceptionHandler implements IExecutionExceptionHandler {
+        public int handleExecutionException(Exception ex, CommandLine cmd, ParseResult parseResult) {
+            if (ex instanceof UserFacingException ufex) {
+                cmd.getErr().println(cmd.getColorScheme().errorText("Error: " + ex.getMessage()));
+                cmd.getErr().println(cmd.getColorScheme().text(ufex.advice()));
+            } else {
+                cmd.getErr().println(cmd.getColorScheme().richStackTraceString(ex));
+            }
+
+            return cmd.getExitCodeExceptionMapper() != null
+                    ? cmd.getExitCodeExceptionMapper().getExitCode(ex)
+                    : cmd.getCommandSpec().exitCodeOnExecutionException();
+        }
+    }
+
     static class PetsciiEditExploder implements Runnable {
+
+        @Option(names = "--debug", description = "Print debug info to stderr")
+        boolean debug;
 
         @Option(names = {
                 "--charsets" }, defaultValue = "*", description = "Names of charsets to process. Glob matching is supported.")
@@ -80,7 +110,9 @@ public class pexplode {
             try {
                 PetsciiProjectEnvelope envelope = objectMapper.readValue(inputFile.toFile(),
                         PetsciiProjectEnvelope.class);
-                peProject = objectMapper.readValue(lzwDecompress(envelope.data()), PetsciiProject.class);
+                String innerJson = lzwDecompress(envelope.data());
+                debugPrintf("Decompressed JSON of .pe file: %s%n", innerJson);
+                peProject = objectMapper.readValue(innerJson, PetsciiProject.class);
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
@@ -119,7 +151,7 @@ public class pexplode {
             int nextSpriteAddr = firstSpriteAddr;
             try (PrintWriter spriteNumsOut = new PrintWriter(spritenumsFile);
                     OutputStream dataOut = new FileOutputStream(spriteDataFile)) {
-                
+
                 // load address
                 writeWord(dataOut, nextSpriteAddr);
 
@@ -148,14 +180,15 @@ public class pexplode {
         }
 
         /** Returns the VIC-II sprite number for the given address */
-        private int vicSpriteNum(int nextSpriteAddr) {
+        private static int vicSpriteNum(int nextSpriteAddr) {
             return (nextSpriteAddr & 0x3fff) / 64;
         }
 
         /**
-         * Takes an 8-element array of 0s and 1s (MSB first) and returns the corresponding byte.
+         * Takes an 8-element array of 0s and 1s (MSB first) and returns the
+         * corresponding byte.
          */
-        private byte condenseBits(int[] spriteBits) {
+        private static byte condenseBits(int[] spriteBits) {
             if (spriteBits.length != 8) {
                 throw new IllegalArgumentException("spriteBits.length is " + spriteBits.length + "; expected 8");
             }
@@ -163,7 +196,8 @@ public class pexplode {
             for (int i = 0; i < 8; i++) {
                 int v = spriteBits[i];
                 if (v != 0 && v != 1) {
-                    throw new IllegalArgumentException("spriteBits[" + i + "] is " + spriteBits[i] + "; expected 1 or 0");
+                    throw new IllegalArgumentException(
+                            "spriteBits[" + i + "] is " + spriteBits[i] + "; expected 1 or 0");
                 }
                 b = b << 1;
                 b |= v;
@@ -171,10 +205,7 @@ public class pexplode {
             return (byte) (b & 0xff);
         }
 
-        static class OutputMode {
-        }
-
-        private void downcaseKeys(Map<String, ?> map) {
+        private static void downcaseKeys(Map<String, ?> map) {
             map.keySet().forEach(String::toLowerCase);
         }
 
@@ -249,366 +280,369 @@ public class pexplode {
             }
             return null;
         }
-    }
 
-    /**
-     * Sets colour codes for spaces to the colour code of the cell to the left.
-     * This optimizes for run-length encoding by eliminating random colour
-     * variations where they can't be seen.
-     * <p>
-     * It's assumed that the space character is 0x20.
-     * 
-     * @return a cleaned version of the colour data.
-     */
-    private static byte[] cleanColourData(byte[] charData, byte[] colourData) {
-        byte[] cleaned = new byte[colourData.length];
-        for (int i = 0; i < charData.length; i++) {
-            if (i > 0 && charData[i] == 0x20) {
-                cleaned[i] = cleaned[i - 1];
-            } else {
-                cleaned[i] = colourData[i];
+        /**
+         * Sets colour codes for spaces to the colour code of the cell to the left.
+         * This optimizes for run-length encoding by eliminating random colour
+         * variations where they can't be seen.
+         * <p>
+         * It's assumed that the space character is 0x20.
+         * 
+         * @return a cleaned version of the colour data.
+         */
+        private static byte[] cleanColourData(byte[] charData, byte[] colourData) {
+            byte[] cleaned = new byte[colourData.length];
+            for (int i = 0; i < charData.length; i++) {
+                if (i > 0 && charData[i] == 0x20) {
+                    cleaned[i] = cleaned[i - 1];
+                } else {
+                    cleaned[i] = colourData[i];
+                }
+            }
+            return cleaned;
+        }
+
+        private static byte[] flatten(List<int[]> intArrays) {
+            byte result[] = new byte[intArrays.stream().mapToInt(a -> a.length).sum()];
+            int i = 0;
+            for (int[] array : intArrays) {
+                for (int v : array) {
+                    result[i++] = (byte) (v & 0xff);
+                }
+            }
+            ;
+            return result;
+        }
+
+        private static void writeWord(OutputStream out, int word) throws IOException {
+            out.write((byte) (word & 0xff));
+            out.write((byte) (word >> 8 & 0xff));
+        }
+
+        private void writeCrunchedFile(String filename, Map<Integer, byte[]> segments) {
+            infoPrintf("Writing %s%n", filename);
+            try (OutputStream out = new FileOutputStream(filename)) {
+                for (var segment : segments.entrySet()) {
+                    int addr = segment.getKey();
+                    byte[] rawBytes = segment.getValue();
+
+                    writeWord(out, addr);
+                    byte[] crunchedBytes = crunch(rawBytes);
+                    out.write(crunchedBytes);
+
+                    // end segment
+                    out.write((byte) 0xff);
+                    out.write((byte) 0x00);
+
+                    debugPrintf("  $%x - %d -> %d (%.2f%%)%n",
+                            addr, rawBytes.length, crunchedBytes.length,
+                            ((float) crunchedBytes.length) / ((float) rawBytes.length) * 100f);
+                }
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
             }
         }
-        return cleaned;
-    }
 
-    private static byte[] flatten(List<int[]> intArrays) {
-        byte result[] = new byte[intArrays.stream().mapToInt(a -> a.length).sum()];
-        int i = 0;
-        for (int[] array : intArrays) {
-            for (int v : array) {
-                result[i++] = (byte) (v & 0xff);
+        byte[] crunch(byte[] rawBytes) {
+            ArrayList<Byte> compressed = new ArrayList<>();
+            for (int i = 0; i < rawBytes.length;) {
+                int runlen = findRun(rawBytes, i);
+                Similarity repeat = findSim(rawBytes, i);
+
+                if (repeat.length() > 3 && repeat.length() > runlen) {
+                    debugPrintf("Using sim length %d start %d: %s%n", repeat.length(), repeat.start(),
+                            sliceToString(rawBytes, repeat.start(), repeat.length()));
+                    compressed.add((byte) 0xfe);
+                    compressed.add((byte) repeat.length());
+                    compressed.add((byte) (i - repeat.start()));
+                    i += repeat.length();
+                } else if (runlen > 2) {
+                    compressed.add((byte) 0xff);
+                    compressed.add((byte) runlen);
+                    compressed.add((byte) rawBytes[i]);
+                    i += runlen;
+                } else if (rawBytes[i] >= 0xfe) {
+                    compressed.add((byte) 0xff);
+                    compressed.add((byte) 1);
+                    compressed.add((byte) rawBytes[i]);
+                    i += 1;
+                } else {
+                    compressed.add((byte) rawBytes[i]);
+                    i += 1;
+                }
+                verifyNoStopCodes(rawBytes, i, compressed, runlen, repeat);
+            }
+            byte result[] = new byte[compressed.size()];
+            for (int i = 0; i < compressed.size(); i++) {
+                result[i] = (byte) (compressed.get(i) & 0xff);
+            }
+            return result;
+        }
+
+        private static void verifyNoStopCodes(
+                byte[] rawBytes,
+                int i,
+                ArrayList<Byte> compressed,
+                int runlen,
+                Similarity repeat) {
+            int stopCodeIndex = Collections.indexOfSubList(
+                    compressed,
+                    List.of(
+                            Byte.valueOf((byte) 0xff),
+                            Byte.valueOf((byte) 0)));
+            if (stopCodeIndex != -1) {
+                throw new AssertionError("Found stop code at index %d. i=%d, runlen=%d, repeat=%s"
+                        .formatted(stopCodeIndex, i, runlen, repeat));
             }
         }
-        ;
-        return result;
-    }
 
-    private static void writeWord(OutputStream out, int word) throws IOException {
-        out.write((byte) (word & 0xff));
-        out.write((byte) (word >> 8 & 0xff));
-    }
-
-    private static void writeCrunchedFile(String filename, Map<Integer, byte[]> segments) {
-        System.err.printf("Writing %s%n", filename);
-        try (OutputStream out = new FileOutputStream(filename)) {
-            for (var segment : segments.entrySet()) {
-                int addr = segment.getKey();
-                byte[] rawBytes = segment.getValue();
-
-                writeWord(out, addr);
-                byte[] crunchedBytes = crunch(rawBytes);
-                out.write(crunchedBytes);
-
-                // end segment
-                out.write((byte) 0xff);
-                out.write((byte) 0x00);
-
-                System.err.printf("  $%x - %d -> %d (%.2f%%)%n",
-                        addr, rawBytes.length, crunchedBytes.length,
-                        ((float) crunchedBytes.length) / ((float) rawBytes.length) * 100f);
+        private static Object sliceToString(byte[] rawBytes, int start, int length) {
+            StringBuilder sb = new StringBuilder(length);
+            for (int i = start; start + i < length; i++) {
+                int ch = rawBytes[i];
+                if (ch < ' ' || ch > '~') {
+                    sb.append('?');
+                } else {
+                    sb.append((char) ch);
+                }
             }
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
+            return sb.toString();
         }
-    }
 
-    private static byte[] crunch(byte[] rawBytes) {
-        ArrayList<Byte> compressed = new ArrayList<>();
-        for (int i = 0; i < rawBytes.length;) {
-            int runlen = findRun(rawBytes, i);
-            Similarity repeat = findSim(rawBytes, i);
-
-            if (repeat.length() > 3 && repeat.length() > runlen) {
-                System.err.printf("Using sim length %d start %d: %s%n", repeat.length(), repeat.start(),
-                        sliceToString(rawBytes, repeat.start(), repeat.length()));
-                compressed.add((byte) 0xfe);
-                compressed.add((byte) repeat.length());
-                compressed.add((byte) (i - repeat.start()));
-                i += repeat.length();
-            } else if (runlen > 2) {
-                compressed.add((byte) 0xff);
-                compressed.add((byte) runlen);
-                compressed.add((byte) rawBytes[i]);
-                i += runlen;
-            } else if (rawBytes[i] >= 0xfe) {
-                compressed.add((byte) 0xff);
-                compressed.add((byte) 1);
-                compressed.add((byte) rawBytes[i]);
-                i += 1;
-            } else {
-                compressed.add((byte) rawBytes[i]);
-                i += 1;
-            }
-            verifyNoStopCodes(rawBytes, i, compressed, runlen, repeat);
-        }
-        byte result[] = new byte[compressed.size()];
-        for (int i = 0; i < compressed.size(); i++) {
-            result[i] = (byte) (compressed.get(i) & 0xff);
-        }
-        return result;
-    }
-
-    private static void verifyNoStopCodes(
-            byte[] rawBytes,
-            int i,
-            ArrayList<Byte> compressed,
-            int runlen,
-            pexplode.Similarity repeat) {
-        int stopCodeIndex = Collections.indexOfSubList(
-                compressed,
-                List.of(
-                        Byte.valueOf((byte) 0xff),
-                        Byte.valueOf((byte) 0)));
-        if (stopCodeIndex != -1) {
-            throw new AssertionError("Found stop code at index %d. i=%d, runlen=%d, repeat=%s"
-                    .formatted(stopCodeIndex, i, runlen, repeat));
-        }
-    }
-
-    private static Object sliceToString(byte[] rawBytes, int start, int length) {
-        StringBuilder sb = new StringBuilder(length);
-        for (int i = start; start + i < length; i++) {
+        /**
+         * Returns the length of the run starting at i, up to the maximum
+         * length 255.
+         */
+        private static int findRun(byte[] rawBytes, int i) {
+            final int startPos = i;
             int ch = rawBytes[i];
-            if (ch < ' ' || ch > '~') {
-                sb.append('?');
-            } else {
-                sb.append((char) ch);
+            do {
+                i++;
+            } while (i - startPos < 255
+                    && i < rawBytes.length
+                    && rawBytes[i] == ch);
+            return i - startPos;
+        }
+
+        record Similarity(int start, int length) {
+
+            public static final Similarity NONE = new Similarity(0, 0);
+
+            public Similarity {
+                if (length < 0 || length > 255)
+                    throw new AssertionError("Length %d out of range".formatted(length));
+                if (start < 0)
+                    throw new AssertionError("Start %d out of range".formatted(start));
+            }
+
+            public boolean isLongerThan(Similarity other) {
+                return this.length > other.length;
             }
         }
-        return sb.toString();
-    }
 
-    /**
-     * Returns the length of the run starting at i, up to the maximum
-     * length 255.
-     */
-    private static int findRun(byte[] rawBytes, int i) {
-        final int startPos = i;
-        int ch = rawBytes[i];
-        do {
-            i++;
-        } while (i - startPos < 255
-                && i < rawBytes.length
-                && rawBytes[i] == ch);
-        return i - startPos;
-    }
-
-    record Similarity(int start, int length) {
-
-        public static final Similarity NONE = new Similarity(0, 0);
-
-        public Similarity {
-            if (length < 0 || length > 255)
-                throw new AssertionError("Length %d out of range".formatted(length));
-            if (start < 0)
-                throw new AssertionError("Start %d out of range".formatted(start));
-        }
-
-        public boolean isLongerThan(Similarity other) {
-            return this.length > other.length;
-        }
-    }
-
-    /**
-     * Finds the maximal sequence of bytes starting startIdx which is a repeat of
-     * bytes starting at some earlier index.
-     * <p>
-     * The similarity can overlap regions past startIdx, but it will always start
-     * at least one character behind (or else the decoder would need to predict
-     * the future!):
-     * <p>
-     * Example 1: overlap
-     * 
-     * <pre>
-     * In:   AAAABBCDDDAAAABBCDDD
-     *        ^ startIdx = 1
-     * 
-     * Out:  ^ start = 0
-     *           ^ length = 3
-     * </pre>
-     * 
-     * Example 2: no overlap
-     * 
-     * <pre>
-     * In:   AAAABBCDDDAAAABBCDDD
-     *                 ^ startIdx = 10
-     * 
-     * Out:  ^ start = 0
-     *                 ^ length = 10
-     * </pre>
-     * 
-     * @param rawBytes The array to search for a similar subsequence within.
-     * @param startIdx The start index for the search
-     * @return a similarity that points to the start index of the sequence that's
-     *         repeated at startIdx, and its length. The similar sequence will start
-     *         no
-     *         more than 255 characters before startIdx, and will have length no
-     *         more than
-     *         255.
-     */
-    private static pexplode.Similarity findSim(byte[] rawBytes, final int startIdx) {
-        Similarity bestSim = Similarity.NONE;
-        for (int i = Math.max(startIdx - 255, 0); i < startIdx; i++) {
-            int r = i; // rear pointer
-            int f = startIdx; // forward pointer
-            while (f < rawBytes.length && rawBytes[r] == rawBytes[f] && f - startIdx < 255) {
-                r++;
-                f++;
+        /**
+         * Finds the maximal sequence of bytes starting startIdx which is a repeat of
+         * bytes starting at some earlier index.
+         * <p>
+         * The similarity can overlap regions past startIdx, but it will always start
+         * at least one character behind (or else the decoder would need to predict
+         * the future!):
+         * <p>
+         * Example 1: overlap
+         * 
+         * <pre>
+         * In:   AAAABBCDDDAAAABBCDDD
+         *        ^ startIdx = 1
+         * 
+         * Out:  ^ start = 0
+         *           ^ length = 3
+         * </pre>
+         * 
+         * Example 2: no overlap
+         * 
+         * <pre>
+         * In:   AAAABBCDDDAAAABBCDDD
+         *                 ^ startIdx = 10
+         * 
+         * Out:  ^ start = 0
+         *                 ^ length = 10
+         * </pre>
+         * 
+         * @param rawBytes The array to search for a similar subsequence within.
+         * @param startIdx The start index for the search
+         * @return a similarity that points to the start index of the sequence that's
+         *         repeated at startIdx, and its length. The similar sequence will start
+         *         no
+         *         more than 255 characters before startIdx, and will have length no
+         *         more than
+         *         255.
+         */
+        private static Similarity findSim(byte[] rawBytes, final int startIdx) {
+            Similarity bestSim = Similarity.NONE;
+            for (int i = Math.max(startIdx - 255, 0); i < startIdx; i++) {
+                int r = i; // rear pointer
+                int f = startIdx; // forward pointer
+                while (f < rawBytes.length && rawBytes[r] == rawBytes[f] && f - startIdx < 255) {
+                    r++;
+                    f++;
+                }
+                Similarity sim = new Similarity(i, f - startIdx);
+                if (sim.isLongerThan(bestSim)) {
+                    bestSim = sim;
+                }
             }
-            Similarity sim = new Similarity(i, f - startIdx);
-            if (sim.isLongerThan(bestSim)) {
-                bestSim = sim;
+            return bestSim;
+        }
+
+        void writePrgFile(String filename, int loadAddress, byte[] bytes) {
+            infoPrintf("Writing %s ($%x)%n", filename, loadAddress);
+            try (OutputStream out = new FileOutputStream(filename)) {
+                writeWord(out, loadAddress);
+                out.write(bytes);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
             }
         }
-        return bestSim;
-    }
 
-    static void writePrgFile(String filename, int loadAddress, byte[] bytes) {
-        System.err.printf("Writing %s ($%x)%n", filename, loadAddress);
-        try (OutputStream out = new FileOutputStream(filename)) {
-            writeWord(out, loadAddress);
-            out.write(bytes);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
+        static record PetsciiProjectEnvelope(
+                /** "PETSCII Editor" */
+                String app,
+
+                /** "3.0" */
+                String version,
+
+                /** LZW compressed JSON string */
+                String data) {
         }
-    }
 
-    static record PetsciiProjectEnvelope(
-            /** "PETSCII Editor" */
-            String app,
+        static record PetsciiProject(
+                String app,
+                String url,
+                Object meta,
+                Object options,
+                Object clipboards,
+                List<CharsetBitmaps> charsets,
+                List<Screen> screens,
+                List<SpriteSet> spriteSets) {
+        }
 
-            /** "3.0" */
-            String version,
+        static record CharsetBitmaps(
+                String name,
+                String mode,
+                byte bgColor,
+                byte charColor,
+                byte multiColor1,
+                byte multiColor2,
+                List<int[]> bitmaps) {
+        }
 
-            /** LZW compressed JSON string */
-            String data) {
-    }
+        static record Screen(
+                String name,
+                String mode,
+                int sizeX,
+                int sizeY,
+                byte colorBorder,
+                byte colorBg,
+                byte colorChar,
+                byte multiColor1,
+                byte multiColor2,
+                byte extBgColor1,
+                byte extBgColor2,
+                byte extBgColor3,
+                byte spriteMultiColor1,
+                byte spriteMultiColor2,
+                String spritesInBorder,
+                boolean spritesVisible,
+                int characterSet,
+                List<int[]> charData,
+                List<int[]> colorData,
+                List<SpriteOnScreen> sprites,
+                List<Object> undoStack,
+                List<Object> redoStack) {
+        }
 
-    static record PetsciiProject(
-            String app,
-            String url,
-            Object meta,
-            Object options,
-            Object clipboards,
-            List<CharsetBitmaps> charsets,
-            List<Screen> screens,
-            List<SpriteSet> spriteSets) {
-    }
+        static record SpriteSet(
+                String name,
+                List<Sprite> sprites,
+                List<Object> undoStack,
+                List<Object> redoStack) {
+        }
 
-    static record CharsetBitmaps(
-            String name,
-            String mode,
-            byte bgColor,
-            byte charColor,
-            byte multiColor1,
-            byte multiColor2,
-            List<int[]> bitmaps) {
-    }
+        static record Sprite(
+                String uid,
+                String mode,
+                byte colorBg,
+                byte colorSprite,
+                byte multiColor1,
+                byte multiColor2,
+                boolean expandX,
+                boolean expandY,
+                List<int[]> bitmapData) {
+        }
 
-    static record Screen(
-            String name,
-            String mode,
-            int sizeX,
-            int sizeY,
-            byte colorBorder,
-            byte colorBg,
-            byte colorChar,
-            byte multiColor1,
-            byte multiColor2,
-            byte extBgColor1,
-            byte extBgColor2,
-            byte extBgColor3,
-            byte spriteMultiColor1,
-            byte spriteMultiColor2,
-            String spritesInBorder,
-            boolean spritesVisible,
-            int characterSet,
-            List<int[]> charData,
-            List<int[]> colorData,
-            List<Sprite> sprites,
-            List<Object> undoStack,
-            List<Object> redoStack) {
-    }
-
-    static record SpriteSet(
-            String name,
-            List<Sprite> sprites,
-            List<Object> undoStack,
-            List<Object> redoStack) {
-    }
-
-    static record Sprite(
+        static record SpriteOnScreen(
+            int setId,
             String uid,
-            String mode,
-            byte colorBg,
-            byte colorSprite,
-            byte multiColor1,
-            byte multiColor2,
+            int x,
+            int y,
+            int color,
             boolean expandX,
             boolean expandY,
-            List<int[]> bitmapData) {
-    }
-
-    // chatgpt helped me figure this out
-    public static String lzwDecompress(String input) {
-        HashMap<Integer, String> dictionary = new HashMap<>();
-        StringBuilder decompressed = new StringBuilder();
-        int nextCode = 256;
-
-        // Initialize dictionary with ASCII characters
-        for (int i = 0; i < 256; i++) {
-            dictionary.put(i, String.valueOf((char) i));
+            String priority) {
         }
 
-        String currentCode = dictionary.get((int) input.charAt(0));
-        decompressed.append(currentCode);
+        // chatgpt helped me figure this out
+        public static String lzwDecompress(String input) {
+            HashMap<Integer, String> dictionary = new HashMap<>();
+            StringBuilder decompressed = new StringBuilder();
+            int nextCode = 256;
 
-        for (int i = 1; i < input.length(); i++) {
-            int code = (int) input.charAt(i);
-
-            String entry;
-            if (dictionary.containsKey(code)) {
-                entry = dictionary.get(code);
-            } else if (code == nextCode) {
-                entry = currentCode + currentCode.charAt(0);
-            } else {
-                throw new IllegalArgumentException("Invalid compressed input.");
+            // Initialize dictionary with ASCII characters
+            for (int i = 0; i < 256; i++) {
+                dictionary.put(i, String.valueOf((char) i));
             }
 
-            decompressed.append(entry);
-            dictionary.put(nextCode++, currentCode + entry.charAt(0));
-            currentCode = entry;
-        }
+            String currentCode = dictionary.get((int) input.charAt(0));
+            decompressed.append(currentCode);
 
-        return decompressed.toString();
-    }
+            for (int i = 1; i < input.length(); i++) {
+                int code = (int) input.charAt(i);
 
-    static class UserFacingException extends RuntimeException {
-        private final String advice;
+                String entry;
+                if (dictionary.containsKey(code)) {
+                    entry = dictionary.get(code);
+                } else if (code == nextCode) {
+                    entry = currentCode + currentCode.charAt(0);
+                } else {
+                    throw new IllegalArgumentException("Invalid compressed input.");
+                }
 
-        public UserFacingException(String message, String advice) {
-            super(message);
-            this.advice = advice;
-        }
-
-        public String advice() {
-            return advice;
-        }
-    }
-
-    static class UserFacingExceptionHandler implements IExecutionExceptionHandler {
-        public int handleExecutionException(Exception ex, CommandLine cmd, ParseResult parseResult) {
-            if (ex instanceof UserFacingException ufex) {
-                cmd.getErr().println(cmd.getColorScheme().errorText("Error: " + ex.getMessage()));
-                cmd.getErr().println(cmd.getColorScheme().text(ufex.advice()));
-            } else {
-                cmd.getErr().println(cmd.getColorScheme().richStackTraceString(ex));
+                decompressed.append(entry);
+                dictionary.put(nextCode++, currentCode + entry.charAt(0));
+                currentCode = entry;
             }
 
-            return cmd.getExitCodeExceptionMapper() != null
-                    ? cmd.getExitCodeExceptionMapper().getExitCode(ex)
-                    : cmd.getCommandSpec().exitCodeOnExecutionException();
+            return decompressed.toString();
+        }
+
+        private void debugPrintln(String msg) {
+            if (debug) {
+                System.err.println(msg);
+            }
+        }
+
+        private void debugPrintf(String format, Object... args) {
+            if (debug) {
+                System.err.printf(format, args);
+            }
+        }
+
+        private void infoPrintln(String msg) {
+            System.err.println(msg);
+        }
+
+        private void infoPrintf(String format, Object... args) {
+            System.err.printf(format, args);
         }
     }
 }
