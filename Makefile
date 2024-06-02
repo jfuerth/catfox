@@ -33,7 +33,7 @@ target/interplat.prg: interplat.s tools assets
 # TODO make the BASIC loader an autostart
 # TODO dynamically add screens to the disk image
 catfox.d64: assets target/interplat.prg
-	tools/basic.java make-loader -o target/catfox-loader.prg \
+	tools/basic.java make-loader -s 49152 -o target/catfox-loader.prg \
 	  INTERPLAT SPRITES BGCHARS
 	c1541 -format catfox,cf d64 catfox.d64 \
 	  -attach catfox.d64 \

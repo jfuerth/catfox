@@ -65,7 +65,8 @@ public class basic {
 
     @Command(name = "make-loader")
     void makeLoader(
-        @Option(names="-o", description="Output file") File outputFile,
+        @Option(names="-o", description="Output file", required=true) File outputFile,
+        @Option(names="-s", description="SYS start address", required=true) int sysAddress,
         @Parameters(description="Files to load (in order)") String[] loadFiles
     ) throws IOException {
         Memory mem = new Memory();
@@ -73,14 +74,16 @@ public class basic {
         BasicMemWriter writer = new BasicMemWriter(mem, startAddr, 0, 1);
         writer.writeBasicLine(
             "I", BT.OP_EQ, "I", BT.OP_PLUS, "1",
+            ":", BT.PRINT, "I",
             ":", BT.ON, "I", BT.GOTO,
-            IntStream.range(1, loadFiles.length + 1)
+            IntStream.range(1, loadFiles.length + 2)
                .mapToObj(String::valueOf)
                .collect(Collectors.joining(",")));
 
         for (String filename : loadFiles) {
             writer.writeBasicLine(BT.LOAD, "\"" + filename + "\",8,1");
         }
+        writer.writeBasicLine(BT.SYS, String.valueOf(sysAddress));
         writer.endProgram();
         try (OutputStream out = new java.io.FileOutputStream(outputFile)) {
             out.write(startAddr & 0xff);
