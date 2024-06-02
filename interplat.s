@@ -776,9 +776,24 @@ d	lda #jdown
 	inc mobcptr+mobyh
 	inc mobcpbl+mobyh
 	inc mobcpbr+mobyh
+
 f	lda #jfire
 	bit $dc01
-	;; TODO lay down a character
+	bne done
+	; lay down a character here
+	#moblda "yh"
+	jsr pointsc
+	#moblda "xh"
+	tay
+	lda #$bf ; reverse "?"
+	sta (r3),y
+	; affect colour
+	clc
+	lda r4
+	adc #($d8-$48)
+	sta r4
+	lda #7
+	sta (r3),y
 
 done
 	rts
@@ -790,12 +805,6 @@ done
 ;  C= C: copy
 ;  C= V: paste
 ;  C= N: save as new stamp
-	.bend
-
-setsc
-; set screencode at x,y to a
-	.block
-	TODO
 	.bend
 
 pointsc
