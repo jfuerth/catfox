@@ -19,8 +19,60 @@ int getaddr(char *label, char *line) {
   return -1;
 }
 
+void push_path(char *path, const char *segment) {
+  char *clean_segment = strndup(segment, LINE_MAX);
+
+  // change non-alphanumerics to _
+  for (int i = 0; clean_segment[i] != '\0' && i < LINE_MAX; i++) {
+    if ( (clean_segment[i] >= 'a' && clean_segment[i] <= 'z') ||
+         (clean_segment[i] >= '0' && clean_segment[i] <= '9')) {
+      // good
+    } else {
+      clean_segment[i] = '_';
+    }
+  }
+
+  strncat(path, ".", LINE_MAX);
+  strncat(path, clean_segment, LINE_MAX);
+
+  fprintf(stderr, "Pushed %s to path: %s\n", segment, path);
+
+  free(clean_segment);
+}
+
+void pop_path(char *path) {
+  for (int i = strnlen(path, LINE_MAX); i >= 0; i--) {
+    if (path[i] == '.') {
+      path[i] = '\0';
+      break;
+    }
+  }
+  fprintf(stderr, "Popped path: %s\n", path);
+}
+
+int update_path(const char *line, char *blockpath, const char *lastlabel) {
+  fprintf(stderr, "searching for block in line: %s\n", line);
+  if (strnstr(line, ".block", LINE_MAX)) {
+    push_path(blockpath, lastlabel);
+    return 1;
+  }
+
+  if (strnstr(line, ".bend", LINE_MAX)) {
+    pop_path(blockpath);
+    return -1;
+  }
+
+  return 0;
+}
+
 int main(int argc, char **argv) {
   char line[LINE_MAX];
+
+  // track the .block/.bend nesting structure
+  char lastlabel[LINE_MAX];
+  lastlabel[0] = '\0';
+  char blockpath[LINE_MAX];
+  blockpath[0] = '\0';
 
   while (fgets(line, LINE_MAX, stdin) != NULL) {
     int len = strlen(line);
@@ -34,6 +86,13 @@ int main(int argc, char **argv) {
         continue;
       }
 
+      strncpy(lastlabel, label, LINE_MAX);
+
+      // remember original path so we can print the label correctly
+      // if we encounter a .block or .bend while looking for the address
+      char oldpath[LINE_MAX];
+      strncpy(oldpath, blockpath, LINE_MAX);
+
       // find closest line (starting with this one) that has an address. That's the label's address.
       int address;
       for (;;) {
@@ -43,10 +102,13 @@ int main(int argc, char **argv) {
           fprintf(stderr, "got EOF looking for address of label %s\n", label);
           return 1;
         }
+        update_path(line, blockpath, lastlabel);
       }
 
       // emit vice label
-      printf("add_label %x .%s\n", address, label);
+      printf("add_label %x %s.%s\n", address, oldpath, label);
+    } else {
+      update_path(line, blockpath, lastlabel);
     }
   }
 }
