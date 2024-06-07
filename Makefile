@@ -20,11 +20,16 @@ assets: catfox.pe
 	mkdir -p target
 	cd target && ../tools/pexplode.java ../catfox.pe \
 	  --charsets='bgchars-mc*' \
-	  --load-addr='sc????=4800'
+	  --load-addr='sc????=4800' \
+	  --mobtab-addr='800'
 
 target/interplat.prg: interplat.s tools assets
 	tmpx -i $< -o $@ -l $@.list
 	cat $@.list | tools/tmplab2vice > $@.labels
+
+target/interplat.exported_symbols: target/interplat.prg
+	cat target/interplat.prg.labels \
+		| sed -E 's/add_label (....) \.(.*)/\2=\1/' > $@
 
 %.prg: %.s tools
 	tmpx -i $< -o target/$@ -l target/$@.list

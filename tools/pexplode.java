@@ -3,6 +3,7 @@
 //DEPS info.picocli:picocli:4.7.6
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -11,11 +12,11 @@ import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -28,6 +29,7 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 
 import picocli.CommandLine;
 import picocli.CommandLine.IExecutionExceptionHandler;
+import picocli.CommandLine.ITypeConverter;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParseResult;
@@ -98,13 +100,34 @@ public class pexplode {
                 """)
         Map<String, String> colorLoadAddresses = new LinkedHashMap<>();
 
+        @Option(names = "--mobtab-addr", required = true, converter = C64AddressConverter.class,
+         description = "Load address for mob table segment saved with screens")
+        int mobTableAddr;
+
+        @Option(names = "--symbols-file", description = "File with name=address mappings for C64 addresses")
+        File symbolsFile;
+
         @Parameters(description = "PETSCII Editor (.pe) file to read")
         Path inputFile;
+
+        Map<String, Integer> symbols = new LinkedHashMap<>();
 
         @Override
         public void run() {
             downcaseKeys(loadAddresses);
             downcaseKeys(colorLoadAddresses);
+
+            if (symbolsFile != null) {
+                try {
+                    Properties props = new Properties();
+                    props.load(new FileInputStream(symbolsFile));
+                    props.forEach((sym, addr) -> symbols.put(
+                            (String) sym,
+                            Integer.parseInt((String) addr, 16)));
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            }
 
             PetsciiProject peProject;
             try {
@@ -115,24 +138,6 @@ public class pexplode {
                 peProject = objectMapper.readValue(innerJson, PetsciiProject.class);
             } catch (Exception e) {
                 throw new RuntimeException(e);
-            }
-
-            // output charsets
-            for (CharsetBitmaps cs : peProject.charsets()) {
-                if (matchesAnyGlob(cs.name(), charsetGlobs))
-                    writePrgFile(
-                            cs.name() + ".prg",
-                            determineLoadAddress(cs.name()),
-                            flatten(cs.bitmaps()));
-            }
-
-            // output screens
-            for (Screen s : peProject.screens()) {
-                byte[] charData = flatten(s.charData());
-                byte[] colourData = flatten(s.colorData());
-                writeCrunchedFile(s.name(), Map.of(
-                        determineLoadAddress(s.name), charData,
-                        determineColorLoadAddress(s.name), cleanColourData(charData, colourData)));
             }
 
             // output sprites
@@ -148,6 +153,7 @@ public class pexplode {
             final File spritenumsFile = new File(spriteSetName + "_nums.s");
             final File spriteDataFile = new File(spriteSetName + ".prg");
 
+            Map<String, Integer> spriteUidNums = new LinkedHashMap<>();
             int nextSpriteAddr = firstSpriteAddr;
             try (PrintWriter spriteNumsOut = new PrintWriter(spritenumsFile);
                     OutputStream dataOut = new FileOutputStream(spriteDataFile)) {
@@ -162,7 +168,9 @@ public class pexplode {
                         int numberInUi = i + 1;
                         String name = ss.name() + "_" + numberInUi;
 
-                        spriteNumsOut.printf("%s=%d ; addr=%04x%n", name, vicSpriteNum(nextSpriteAddr), nextSpriteAddr);
+                        int vicSpriteNum = vicSpriteNum(nextSpriteAddr);
+                        spriteUidNums.put(s.uid(), vicSpriteNum);
+                        spriteNumsOut.printf("%s=%d ; addr=%04x%n", name, vicSpriteNum, nextSpriteAddr);
 
                         for (int[] spriteBits : s.bitmapData) {
                             byte b = condenseBits(spriteBits);
@@ -177,6 +185,147 @@ public class pexplode {
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
+
+            // output charsets
+            for (CharsetBitmaps cs : peProject.charsets()) {
+                if (matchesAnyGlob(cs.name(), charsetGlobs))
+                    writePrgFile(
+                            cs.name() + ".prg",
+                            determineLoadAddress(cs.name()),
+                            flatten(cs.bitmaps()));
+            }
+
+            // output screens
+            for (Screen s : peProject.screens()) {
+                byte[] charData = flatten(s.charData());
+                byte[] colourData = flatten(s.colorData());
+                byte[] mobTable = createMobTable(spriteUidNums, s.sprites);
+                writeCrunchedFile(s.name(), Map.of(
+                        determineLoadAddress(s.name), charData,
+                        determineColorLoadAddress(s.name), cleanColourData(charData, colourData),
+                        mobTableAddr, mobTable));
+            }
+        }
+
+        static record MobTableEntry(
+                // mobxl=0
+                // mobxh=1
+                float x,
+                // mobdxl=2
+                // mobdxh=3
+                float dx,
+                // mobyl=4
+                // mobyh=5
+                float y,
+                // mobdyl=6
+                // mobdyh=7
+                float dy,
+                // mobcolr=8 ; bit 7 set: disabled
+                // ; bit 6 set: x-mirrored
+                int color,
+                boolean disabled,
+                boolean xMirror,
+                // mobimg=9
+                int imageIndex,
+                // mobalist=10 ; +11
+                int alistAddr,
+                // mobaframe=12
+                int animFrame,
+                // mobattl=13 ; countdown current frame
+                int animTtl,
+                // mobact=14 ; +15
+                int actionAddr) {
+
+            /** Size of a mobtab in (C64 memory) bytes. */
+            public static final int SIZE = 16;
+
+            /** Offset of screen coordinate vs mob coordinate. */
+            private static int spriteXOffset = 24;
+
+            /** Offset of screen coordinate vs mob coordinate. */
+            private static int spriteYOffset = 29;
+
+            public MobTableEntry(
+                    float screenX, float screenY,
+                    int color,
+                    int imageIndex,
+                    int alistAddr,
+                    int actionAddr) {
+                this(
+                        (screenX - spriteXOffset) / 320f,
+                        0f,
+                        (screenY - spriteYOffset) / 200f,
+                        0f,
+                        color,
+                        false,
+                        false, // mob action will set this (usually based on dx)
+                        imageIndex, // alist will override this
+                        alistAddr,
+                        0,
+                        0,
+                        actionAddr);
+            }
+
+            public void write(byte[] dst, int offset) {
+                final int origOffset = offset;
+                write88FixedPoint(dst, offset, x);
+                offset += 2;
+                write88FixedPoint(dst, offset, dx);
+                offset += 2;
+                write88FixedPoint(dst, offset, y);
+                offset += 2;
+                write88FixedPoint(dst, offset, dy);
+                offset += 2;
+                dst[offset++] = (byte) (color
+                        | (disabled ? 0b10000000 : 0)
+                        | (xMirror ? 0b01000000 : 0));
+                dst[offset++] = (byte) imageIndex;
+                write16(dst, offset, alistAddr);
+                offset += 2;
+                dst[offset++] = (byte) animFrame;
+                dst[offset++] = (byte) animTtl;
+                write16(dst, offset, actionAddr);
+                offset += 2;
+
+                if (offset - origOffset != SIZE) {
+                    throw new AssertionError("Made " + offset + " bytes");
+                }
+            }
+
+            private static void write16(byte[] dst, int offset, int val) {
+                dst[offset] = (byte) (val & 0xff);
+                dst[offset] = (byte) (val >> 8 & 0xff);
+            }
+
+            private static void write88FixedPoint(byte[] dst, int offset, float val) {
+                int intPart = (int) val;
+                int fraction = (int) ((val - intPart) * 256);
+                dst[offset] = (byte) (intPart & 0xff);
+                dst[offset + 1] = (byte) (fraction & 0xff);
+            }
+        }
+
+        private byte[] createMobTable(Map<String, Integer> spriteUidNums, List<SpriteOnScreen> sprites) {
+            byte[] mobtab = new byte[MobTableEntry.SIZE * sprites.size() + 2];
+            int offset = 0;
+            for (SpriteOnScreen s : sprites) {
+                MobTableEntry me = new MobTableEntry(
+                        s.x(), s.y(),
+                        s.color(),
+                        spriteUidNums.get(s.uid()),
+                        0, // TODO anim lists
+                        0);
+                me.write(mobtab, offset);
+                offset += MobTableEntry.SIZE;
+            }
+
+            // mark end of table: sentinel value x-coord of ffff
+            // actually any second byte here > 40 is off screen, so there are
+            // many usable sentinel values that could mean other stuff
+            mobtab[offset++] = (byte) 0xff;
+            mobtab[offset++] = (byte) 0xff;
+
+            return mobtab;
         }
 
         /** Returns the VIC-II sprite number for the given address */
@@ -344,6 +493,7 @@ public class pexplode {
         }
 
         byte[] crunch(byte[] rawBytes) {
+            debugPrintf("Crunching %d bytes%n", rawBytes.length);
             ArrayList<Byte> compressed = new ArrayList<>();
             for (int i = 0; i < rawBytes.length;) {
                 int runlen = findRun(rawBytes, i);
@@ -361,7 +511,7 @@ public class pexplode {
                     compressed.add((byte) runlen);
                     compressed.add((byte) rawBytes[i]);
                     i += runlen;
-                } else if (rawBytes[i] >= 0xfe) {
+                } else if ((rawBytes[i] & 0xff) >= 0xfe) {
                     compressed.add((byte) 0xff);
                     compressed.add((byte) 1);
                     compressed.add((byte) rawBytes[i]);
@@ -370,30 +520,78 @@ public class pexplode {
                     compressed.add((byte) rawBytes[i]);
                     i += 1;
                 }
-                verifyNoStopCodes(rawBytes, i, compressed, runlen, repeat);
             }
             byte result[] = new byte[compressed.size()];
             for (int i = 0; i < compressed.size(); i++) {
                 result[i] = (byte) (compressed.get(i) & 0xff);
             }
+            verifyCrunchedData(rawBytes, result);
             return result;
         }
 
-        private static void verifyNoStopCodes(
-                byte[] rawBytes,
-                int i,
-                ArrayList<Byte> compressed,
-                int runlen,
-                Similarity repeat) {
-            int stopCodeIndex = Collections.indexOfSubList(
-                    compressed,
-                    List.of(
-                            Byte.valueOf((byte) 0xff),
-                            Byte.valueOf((byte) 0)));
-            if (stopCodeIndex != -1) {
-                throw new AssertionError("Found stop code at index %d. i=%d, runlen=%d, repeat=%s"
-                        .formatted(stopCodeIndex, i, runlen, repeat));
+        private static void verifyCrunchedData(
+                byte[] original,
+                byte[] crunched) {
+            byte[] decrunched = new byte[original.length];
+            try {
+                for (int i = 0, j = 0; i < crunched.length; i++) {
+                    switch ((int) crunched[i] & 0xff) {
+                        case 0xff -> {
+                            int len = crunched[++i] & 0xff;
+                            byte ch = crunched[++i];
+                            for (int k = 0; k < len; k++) {
+                                decrunched[j + k] = ch;
+                            }
+                            j += len;
+                        }
+                        case 0xfe -> {
+                            int len = crunched[++i] & 0xff;
+                            int offset = crunched[++i] & 0xff;
+                            for (int k = 0; k < len; k++) {
+                                decrunched[j + k] = decrunched[j - offset + k];
+                            }
+                            j += len;
+                        }
+                        default -> {
+                            decrunched[j] = crunched[i];
+                            j++;
+                        }
+                    }
+                }
+            } catch (IndexOutOfBoundsException e) {
+                System.err.println("Decrunched data too big: " + e.getMessage());
             }
+            for (int i = 0; i < original.length; i++) {
+                if (decrunched[i] != original[i]) {
+                    
+                    throw new AssertionError("""
+                    decrunched[$%x] = $%x, original[$%x] = $%x%n
+                    Original:%n
+                    %s%n
+                    Crunched:%n
+                    %s%n
+                    Decrunched:%n
+                    %s%n
+                    """.formatted(i, decrunched[i], i, original[i],
+                    hexdump(original), hexdump(crunched), hexdump(decrunched)));
+                }
+            }
+        }
+
+        private static String hexdump(byte[] data) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < data.length; i++) {
+                if (i % 16 == 0) {
+                    sb.append("%05x ".formatted(i));
+                }
+                sb.append("%02x".formatted(data[i] & 0xff));
+                if (i % 16 == 15) {
+                    sb.append(System.lineSeparator());
+                } else {
+                    sb.append(" ");
+                }
+            }
+            return sb.toString();
         }
 
         private static Object sliceToString(byte[] rawBytes, int start, int length) {
@@ -581,14 +779,14 @@ public class pexplode {
         }
 
         static record SpriteOnScreen(
-            int setId,
-            String uid,
-            int x,
-            int y,
-            int color,
-            boolean expandX,
-            boolean expandY,
-            String priority) {
+                int setId,
+                String uid,
+                int x,
+                int y,
+                int color,
+                boolean expandX,
+                boolean expandY,
+                String priority) {
         }
 
         // chatgpt helped me figure this out
@@ -623,6 +821,15 @@ public class pexplode {
             }
 
             return decompressed.toString();
+        }
+
+        public static class C64AddressConverter implements ITypeConverter<Integer> {
+
+            @Override
+            public Integer convert(String value) throws Exception {
+                return Integer.parseInt(value, 16);
+            }
+
         }
 
         private void debugPrintln(String msg) {

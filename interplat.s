@@ -499,7 +499,7 @@ chkplatform
 	sta r4
 
 	ldy catmob+mobxh
-	iny ; offset from left of sprit	
+	iny ; offset from left of sprite
 
 ;	sty mobcptl+mobxh ; DEBUG
 
