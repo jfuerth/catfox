@@ -1,4 +1,4 @@
-;mobtab=$800
+mobtab=$800
 charset=$4000
 screen=$4800
 sprites=$4c00

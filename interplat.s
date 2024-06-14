@@ -4,6 +4,9 @@
 .include "mobsupport.s"
 .include "math16.s"
 
+catmob=$800
+cpmob=$810
+
 ; VIC sprite image pointers
 spriteimg=screen+1024-8
 
@@ -289,16 +292,6 @@ chkplatform
 	; mobx+1 through mobx+2
 	; and current y addr
 
-; DEBUG
-;	lda catmob+mobyh
-;	adc #0-(spriteyoffs)
-;	sta mobcptl+mobyh
-;	sta mobcptr+mobyh
-;	lda #0
-;	sta mobcptl+mobxl
-;	sta mobcptr+mobxl
-; END DEBUG
-
 	lda catmob+mobyh
 	asl a
 	tay
@@ -311,14 +304,11 @@ chkplatform
 	ldy catmob+mobxh
 	iny ; offset from left of sprite
 
-;	sty mobcptl+mobxh ; DEBUG
-
 	; if any have high bit set,
 	; we are on a platform
 	; (need to OR them)
 	lda (r3),y
 	iny
-;	sty mobcptr+mobxh ; DEBUG
 	ora (r3),y
 	rts
 	.bend
@@ -506,51 +496,6 @@ cpstate	.byte 0
 cpsoff	= 0
 cpssel	= 1
 cpsplc	= 2
-
-mobcptl ; top left marker mob
-	.word $0200 ; x pos
-	.word 0 ; dx
-	.word $1000 ; y pos
-	.word 0 ; dy
-	.byte 7 ; color & flags
-	.byte corner_1 ; sprite img num
-	.word 0 ; alist addr
-	.byte 0 ; aframe
-	.byte 0 ; attl
-	.word cpact ; action
-mobcptr ; top right marker mob
-	.word $0600 ; x pos
-	.word 0 ; dx
-	.word $1000 ; y pos
-	.word 0 ; dy
-	.byte 7 ; color & flags
-	.byte corner_2 ; sprite img num
-	.word 0 ; alist addr
-	.byte 0 ; aframe
-	.byte 0 ; attl
-	.word 0 ; action
-mobcpbl ; bottom left marker mob
-	.word $0200 ; x pos
-	.word 0 ; dx
-	.word $1400 ; y pos
-	.word 0 ; dy
-	.byte 7 ; color & flags
-	.byte corner_3 ; sprite img num
-	.word 0 ; alist addr
-	.byte 0 ; aframe
-	.byte 0 ; attl
-	.word 0 ; action
-mobcpbr ; bottom right marker mob
-	.word $0600 ; x pos
-	.word 0 ; dx
-	.word $1400 ; y pos
-	.word 0 ; dy
-	.byte 7 ; color & flags
-	.byte corner_4 ; sprite img num
-	.word 0 ; alist addr
-	.byte 0 ; aframe
-	.byte 0 ; attl
-	.word 0 ; action
 	
 cpact
 ; mob action: copy/paste controls
@@ -558,34 +503,22 @@ cpact
 r	lda #jright
 	bit $dc01
 	bne l
-	inc mobcptl+mobxh
-	inc mobcptr+mobxh
-	inc mobcpbl+mobxh
-	inc mobcpbr+mobxh
+	inc cpmob+mobxh
 
 l	lda #jleft
 	bit $dc01
 	bne u
-	dec mobcptl+mobxh
-	dec mobcptr+mobxh
-	dec mobcpbl+mobxh
-	dec mobcpbr+mobxh
+	dec cpmob+mobxh
 
 u	lda #jup
 	bit $dc01
 	bne d
-	dec mobcptl+mobyh
-	dec mobcptr+mobyh
-	dec mobcpbl+mobyh
-	dec mobcpbr+mobyh
+	dec cpmob+mobyh
 
 d	lda #jdown
 	bit $dc01
 	bne f
-	inc mobcptl+mobyh
-	inc mobcptr+mobyh
-	inc mobcpbl+mobyh
-	inc mobcpbr+mobyh
+	inc cpmob+mobyh
 
 f	lda #jfire
 	bit $dc01
@@ -724,63 +657,34 @@ init
 	lda #>playeract
 	sta catmob+mobact+1
 
-	; testmob setup
+	; copy/paste mob setup
+	ldx #mobstructsz-1
+	lda #0
+loop
+	sta cpmob,x
+	dex
+	bpl loop
+
 	lda #10
-	sta testmob+mobxh
-	sta testmob+mobyh
-	lda #<cfwalkanim
-	sta testmob+mobalist
-	lda #>cfwalkanim
-	sta testmob+mobalist+1
-	lda #0
-	sta testmob+mobaframe
-	lda #1
-	sta testmob+mobattl
-
-	lda #2
-	sta testmob+mobcolr
-
-	lda #(wlkspd/2)
-	sta testmob+mobdxl
-	lda #0
-	sta testmob+mobdxh
-
-	lda #<platstayact
-	sta testmob+mobact
-	lda #>platstayact
-	sta testmob+mobact+1
+	sta cpmob+mobxh
+	sta cpmob+mobyh
 	
-tminit	.macro
-	lda #\2
-	sta tm@1+mobxh
-	lda #\3
-	sta tm@1+mobyh
-	lda #<cfjumpanim
-	sta tm@1+mobalist
-	lda #>cfjumpanim
-	sta tm@1+mobalist+1
-	lda #0
-	sta tm@1+mobaframe
-	lda #1
-	sta tm@1+mobattl
-
-	lda #\4
-	sta tm@1+mobcolr
-
-	lda #(wlkspd/(\4))
-	sta tm@1+mobdxl
-	lda #0
-	sta tm@1+mobdxh
-
-	lda #<platstayact
-	sta tm@1+mobact
-	lda #>platstayact
-	sta tm@1+mobact+1
-	.endm
-
-	#tminit "2",20,4,3
-	#tminit "3",15,4,4
+	lda #7
+	sta cpmob+mobcolr
 	
+	lda #cursor1x1_1
+	sta cpmob+mobimg
+
+	lda #<cpact
+	sta cpmob+mobact
+	lda #>cpact
+	sta cpmob+mobact+1
+
+	; terminate mobtab with xh=80
+	lda #$80
+	sta cpmob+mobstructsz
+	sta cpmob+mobstructsz+1
+
 	; mirror sprite images
 	; has to be done with intrpt
 	; disabled because it uses zp
@@ -899,29 +803,6 @@ cffallanim
 	.byte catfox_fall_2,4
 	.byte 0,0 ; goto frame 0
 
-; --------- mobs ---------
-
-; --- mob structs
-catmob	.repeat mobstructsz,$00
-testmob	.repeat mobstructsz,$00
-tm2	.repeat mobstructsz,$00
-tm3	.repeat mobstructsz,$00
-
-; --- mob pointers
-mobtab
-	.word catmob
-	.word testmob
-	.word tm2
-	.word tm3
-
-	; copy/paste selection markers
-	.word mobcptl
-	.word mobcptr
-	.word mobcpbl
-	.word mobcpbr
-
-mobtabsz .byte 8
-
 ; --- mob routine state ---
 spritenum
 	.byte 0
@@ -934,38 +815,36 @@ mobupdate
 ; changes are made visible by calling
 ; vicupdate.
 ; returns:
-;  a - # of active mobs (<=8,<=mobtabsz)
+;  a - # of active mobs (<=8)
 ;      which is # vic sprites needed
 	.block
 	ldx #0
-	stx mobtabpos
 	stx activemobs
 
-	; this loop counts up from 0
-updateloop
-	lda mobtabpos
-	cmp mobtabsz
-	beq done
-	asl a ; *2 for word offset
-	tax
-	lda mobtab,x
+	; start pointing at mob 0
+	lda #<mobtab
 	sta mobptr
-	inx
-	lda mobtab,x
+	lda #>mobtab
 	sta mobptr+1
-	#ifmobdis "skip"
+
+	; move mobptr through mobtab until
+	; we see xh=80
+updateloop
+	#moblda "xh"
+	cmp #$80
+	beq done
+	#ifmobdis "nextmob"
 	inc activemobs
-	; TODO mark temporary out of bounds (maybe in MSB of xh?)
+	; TODO mark temporary out of bounds (maybe xh=$fe)
 	jsr mobupdate1
-skip
-	inc mobtabpos
+nextmob
+	#add16ai mobptr,mobstructsz
 	bne updateloop ; always taken
 
 done
 	ldx activemobs
 	txa ; return mobcount
 	rts
-mobtabpos .byte 0
 activemobs .byte 0
 
 mobupdate1
@@ -1094,6 +973,8 @@ vicupdate
 ; a - count of live mobs
 	.block
 
+	sta livemobcnt
+
 	; store # live mobs in spritenum
 	; start at count-1 because it's
 	; a 0-based index
@@ -1102,35 +983,33 @@ vicupdate
 	dex
 	stx spritenum ; count-1
 
-	ldx mobtabsz
-	txa
-	asl a
-	sec
-	sbc #1
-	sta mobtabpos ; (count*2)-1
-
 	lda #0
 	sta $d010 ; sprite hi x bits
 	sta $d015 ; sprite enable
 
-	; loop counts down from mobtabsz
-updateloop
-	ldx mobtabpos
-	bmi done ; wrapped to $ff
-	lda mobtab,x
-	sta mobptr+1
-	dex
-	lda mobtab,x
+	; start by pointing at mob 0
+	lda #<mobtab
 	sta mobptr
-	dex
-	stx mobtabpos
-	#ifmobdis "updateloop"
+	lda #>mobtab
+	sta mobptr+1
+
+	; loop counts down from livemobcnt
+	; mobtab array is never empty
+updateloop
+	#ifmobdis "nextmob"
 	jsr vicupdate1
 	dec spritenum
-	jmp updateloop
+
+nextmob
+	#add16ai mobptr,mobstructsz
+	#moblda "xh"
+	cmp #$80 ; end of mobtab
+	beq done
+	bne updateloop
 	
-done	rts
-mobtabpos .byte 0
+done
+	rts
+livemobcnt .byte 0 ; maybe use r1 instead?
 
 vicupdate1
 ; in: mobptr - mob struct pointer

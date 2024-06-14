@@ -35,7 +35,7 @@ void push_path(char *path, const char *segment) {
   strncat(path, ".", LINE_MAX);
   strncat(path, clean_segment, LINE_MAX);
 
-  fprintf(stderr, "Pushed %s to path: %s\n", segment, path);
+  // fprintf(stderr, "Pushed %s to path: %s\n", segment, path);
 
   free(clean_segment);
 }
@@ -47,11 +47,11 @@ void pop_path(char *path) {
       break;
     }
   }
-  fprintf(stderr, "Popped path: %s\n", path);
+  // fprintf(stderr, "Popped path: %s\n", path);
 }
 
 int update_path(const char *line, char *blockpath, const char *lastlabel) {
-  fprintf(stderr, "searching for block in line: %s\n", line);
+  //fprintf(stderr, "searching for block in line: %s\n", line);
   if (strnstr(line, ".block", LINE_MAX)) {
     push_path(blockpath, lastlabel);
     return 1;

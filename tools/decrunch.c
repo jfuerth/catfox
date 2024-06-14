@@ -9,6 +9,7 @@ const char *black = "\033[0m";
 // flags in the higher bits of memory locations
 const u_int16_t RUN_START = 0x1000;
 const u_int16_t RUN_END = 0x2000;
+const u_int16_t MOBSTRUCT_SIZE = 16;
 
 int read16() {
   int ch, val;
@@ -49,6 +50,21 @@ void dumpscr_linear(int mem[], int ptr) {
     ptr++;
   }
   printf("%c[0m\n", 0x1b);
+}
+
+void dumpmobtab(int mem[], int ptr) {
+  printf("Printing mobtab at 0x%x\n", ptr);
+  printf("      x---- dx--- y---- dy--- c  im al--- af at act--\n");
+  //      0820: 00 e4 00 00 00 5c 00 00 0b 3b 00 00 00 00 00 00
+  int maxptr = ptr + MOBSTRUCT_SIZE * 6 + 2;
+  while (ptr < maxptr) {
+    printf("%04x:", ptr);
+    for (int i = 0; i < 16; i++) {
+      printf(" %02x", mem[ptr+i] & 0xff);
+    }
+    printf("\n");
+    ptr += MOBSTRUCT_SIZE;
+  }
 }
 
 int main(int argc, char **argv) {
@@ -146,5 +162,7 @@ int main(int argc, char **argv) {
     dumpscr(mem, 0x4800);
     dumpscr(mem, 0xd800);
   }
+
+  dumpmobtab(mem, 0x0820);
 }
 

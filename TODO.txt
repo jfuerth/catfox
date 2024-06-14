@@ -1,6 +1,8 @@
 To do:
 
 - dev organization
+  - fix the Makefile: tmpx should run after sprites_nums.s is generated
+    but before mobtab is assembled (it wants to point to routines)
   - crunch the sprite file and load/unpack it on startup
   - upgrade to autoboot loader
   - use "; export" comment on labels to export them to the symbol table 

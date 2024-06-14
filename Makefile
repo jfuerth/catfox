@@ -10,7 +10,7 @@ default: catfox.d64
 #  * drive 8 mapped to "host filesystem IEC device" in this directory
 #    (use path="target" if you start x64sc in this directory)
 #  * Joystick in port 2
-run.dev: interplat.prg assets
+run.dev: assets interplat.prg
 	cat setup.mon | nc localhost 6510
 
 run.d64: catfox.d64
@@ -21,7 +21,8 @@ assets: catfox.pe
 	cd target && ../tools/pexplode.java ../catfox.pe \
 	  --charsets='bgchars-mc*' \
 	  --load-addr='sc????=4800' \
-	  --mobtab-addr='800'
+	  --mobtab-addr='820'
+# address 0820 is just after player 1 and 2 mobs - we replace the tail end of the table
 
 target/interplat.prg: interplat.s tools assets
 	tmpx -i $< -o $@ -l $@.list

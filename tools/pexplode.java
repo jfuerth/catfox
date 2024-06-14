@@ -252,9 +252,9 @@ public class pexplode {
                     int alistAddr,
                     int actionAddr) {
                 this(
-                        (screenX - spriteXOffset) / 320f,
+                        (screenX - spriteXOffset) / 8f,
                         0f,
-                        (screenY - spriteYOffset) / 200f,
+                        (screenY - spriteYOffset) / 8f,
                         0f,
                         color,
                         false,
@@ -300,8 +300,8 @@ public class pexplode {
             private static void write88FixedPoint(byte[] dst, int offset, float val) {
                 int intPart = (int) val;
                 int fraction = (int) ((val - intPart) * 256);
-                dst[offset] = (byte) (intPart & 0xff);
-                dst[offset + 1] = (byte) (fraction & 0xff);
+                dst[offset] = (byte) (fraction & 0xff);
+                dst[offset + 1] = (byte) (intPart & 0xff);
             }
         }
 
@@ -319,11 +319,11 @@ public class pexplode {
                 offset += MobTableEntry.SIZE;
             }
 
-            // mark end of table: sentinel value x-coord of ffff
+            // mark end of table: sentinel value x-coord of 8080
             // actually any second byte here > 40 is off screen, so there are
             // many usable sentinel values that could mean other stuff
-            mobtab[offset++] = (byte) 0xff;
-            mobtab[offset++] = (byte) 0xff;
+            mobtab[offset++] = (byte) 0x80;
+            mobtab[offset++] = (byte) 0x80;
 
             return mobtab;
         }
