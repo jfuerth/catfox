@@ -740,8 +740,14 @@ ioloop
 
 	jmp ioloop
 	
-loadnow	inc gamestop
+loadnow
+	inc gamestop
 	jsr loadscr
+
+	; prepare for next vicupdate
+	; (mobtab has been modified)
+	jsr mobupdate
+	sta mobcount
 
 	sei
 	ldx wantscr
@@ -753,7 +759,8 @@ loadnow	inc gamestop
 	jmp ioloop
 
 ; === START only needed for edit mode
-savenow	inc gamestop
+savenow
+	inc gamestop
 
 	ldx havescr
 	ldy havescr+1

@@ -1,5 +1,4 @@
 To do:
-- track down the source of corruption in one frame of the run sprite (can use a memory write watch)
 - dev organization
   - fix the Makefile: tmpx should run after sprites_nums.s is generated
     but before mobtab is assembled (it wants to point to routines)
@@ -7,36 +6,35 @@ To do:
   - upgrade to autoboot loader
   - use "; export" comment on labels to export them to the symbol table 
 - Build process
-  - global symbols file
+- global symbols file
   - charset base address 
   - screen base address 
-  - colour base address 
-  - alist tables start address (they don't need to all be in the same place, but we need to know their addresses early)
-  - mob table base addresses 
+  - colour base address
+  - sprites base address (=sprites_first)
+  - alist start address 
+  - mob table base address
     - player 1 mob (same as above)
     - player 2 mob (+16)
     - screen mobs (+32)
-  - alist tables (uses start address, sprite symbols)
-  - could generate in a dummy pass since lengths are known even without symbols
+- sprites (depends on catfox.pe and globals)
+  - output sprites.prg
+  - output sprites_nums.s
+- alist tables (uses sprite_nums.s and globals)
+  - output alists.prg
   - output symbols to reference from:
     - mob action routines (including start address, which can follow last alist)
     - screen file mobtabs
-  - assemble mob action routines (uses alist symbols)
+- assemble mob action routines (uses alist symbols)
   - output symbol table to reference in screen file mobtabs
-  - generate assets from catfox.pe (uses global symbols)
+- generate assets from catfox.pe (uses global symbols)
   - charset
   - sprites
     - generate sprite symbols include file
   - screens
     - char matrix, colour matrix, mob table
     - mobtab refers to mob action symbols
-  - assemble main code (depends on screen address, charset address, mobtabs address)
+- assemble main code (depends on screen address, charset address, mobtabs address)
   - could include mob actions or other shared routines 
-- make screen layout design process better
-  - use sprite(set) positions from .pe file to position enemies
-  - remove testing mobtab (and associated init routines) from source code
-  - include a mobtab segment in each screen file
-    - figure out how to keep the p1 catfox & p2 crosshairs mobs (make them first?)
 - P1 controls
   - tinker with accelaration
   - i-frames after damage (tweak that)
@@ -79,7 +77,13 @@ Later:
 - remember which mobs are dead/disabled when we go back to a screen
 
 Done:
+- track down the source of corruption in one frame of the run sprite (can use a memory write watch)
 - make platstayact turn around at edge of screen
+- make screen layout design process better
+  - use sprite(set) positions from .pe file to position enemies
+  - remove testing mobtab (and associated init routines) from source code
+  - include a mobtab segment in each screen file
+    - figure out how to keep the p1 catfox & p2 crosshairs mobs (make them first?)
 - save and load colour ram
 - call anim and movement routines during visible raster lines (save vbl for vic updates)
 - fine tune platform detection (feels misaligned when falling)
