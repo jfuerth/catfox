@@ -1,5 +1,5 @@
 To do:
-
+- track down the source of corruption in one frame of the run sprite (can use a memory write watch)
 - dev organization
   - fix the Makefile: tmpx should run after sprites_nums.s is generated
     but before mobtab is assembled (it wants to point to routines)
@@ -79,6 +79,7 @@ Later:
 - remember which mobs are dead/disabled when we go back to a screen
 
 Done:
+- make platstayact turn around at edge of screen
 - save and load colour ram
 - call anim and movement routines during visible raster lines (save vbl for vic updates)
 - fine tune platform detection (feels misaligned when falling)

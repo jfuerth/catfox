@@ -246,16 +246,19 @@ public class pexplode {
             private static int spriteYOffset = 29;
 
             public MobTableEntry(
-                    float screenX, float screenY,
+                    float screenX,
+                    float dx,
+                    float screenY,
+                    float dy,
                     int color,
                     int imageIndex,
                     int alistAddr,
                     int actionAddr) {
                 this(
                         (screenX - spriteXOffset) / 8f,
-                        0f,
+                        dx,
                         (screenY - spriteYOffset) / 8f,
-                        0f,
+                        dy,
                         color,
                         false,
                         false, // mob action will set this (usually based on dx)
@@ -294,7 +297,7 @@ public class pexplode {
 
             private static void write16(byte[] dst, int offset, int val) {
                 dst[offset] = (byte) (val & 0xff);
-                dst[offset] = (byte) (val >> 8 & 0xff);
+                dst[offset + 1] = (byte) (val >> 8 & 0xff);
             }
 
             private static void write88FixedPoint(byte[] dst, int offset, float val) {
@@ -310,11 +313,12 @@ public class pexplode {
             int offset = 0;
             for (SpriteOnScreen s : sprites) {
                 MobTableEntry me = new MobTableEntry(
-                        s.x(), s.y(),
+                        s.x(), 0.1f,
+                        s.y(), 0f,
                         s.color(),
                         spriteUidNums.get(s.uid()),
                         0, // TODO anim lists
-                        0);
+                        0xc2e2); // TODO get this from symbol .platstayact
                 me.write(mobtab, offset);
                 offset += MobTableEntry.SIZE;
             }

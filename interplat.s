@@ -454,8 +454,14 @@ nofall
 	#setalist "cfwalkanim"
 contwalk
 
-	; if nothing ahead: reverse dx
+	; if at edge of screen: reverse dx
 	ldx r0 ; xh
+	cpx #0
+	bcc turnback
+	cpx #38
+	bcs turnback
+
+	; if nothing ahead: reverse dx
 	#moblda "dxh"
 	bmi checkcliff
 	inx ; look below right side
@@ -466,7 +472,8 @@ checkcliff
 	lda (r3),y ; stepping toward this
 	cmp #$80
 	bcs done
-; no platform ahead: negate mobdx
+
+turnback
 	lda #0
 	sec
 	ldy #mobdxl
