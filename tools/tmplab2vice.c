@@ -11,7 +11,7 @@ int getaddr(char *label, char *line) {
   }
   scanbuf[4] = '\0';
   char *endptr;
-  //printf("    [%20s][%s]--scanning line for address: [%s]\n", label, scanbuf, line);
+  fprintf(stderr, "    [%20s][%s]--scanning line for address: [%s]\n", label, scanbuf, line);
   long addr = strtol(scanbuf, &endptr, 16);
   if (endptr == scanbuf+4) {
     return addr;
@@ -35,7 +35,7 @@ void push_path(char *path, const char *segment) {
   strncat(path, ".", LINE_MAX);
   strncat(path, clean_segment, LINE_MAX);
 
-  // fprintf(stderr, "Pushed %s to path: %s\n", segment, path);
+  fprintf(stderr, "Pushed %s to path: %s\n", segment, path);
 
   free(clean_segment);
 }
@@ -47,11 +47,10 @@ void pop_path(char *path) {
       break;
     }
   }
-  // fprintf(stderr, "Popped path: %s\n", path);
+  fprintf(stderr, "Popped path: %s\n", path);
 }
 
 int update_path(const char *line, char *blockpath, const char *lastlabel) {
-  //fprintf(stderr, "searching for block in line: %s\n", line);
   if (strnstr(line, ".block", LINE_MAX)) {
     push_path(blockpath, lastlabel);
     return 1;
@@ -86,6 +85,17 @@ int main(int argc, char **argv) {
         continue;
       }
 
+      // also skip variable and macro directives because they have no single value
+      if (strstr(line, ".var") != NULL) {
+        continue;
+      }
+      if (strstr(line, ".macro") != NULL) {
+        continue;
+      }
+      if (strstr(line, ".segment") != NULL) {
+        continue;
+      }
+
       strncpy(lastlabel, label, LINE_MAX);
 
       // remember original path so we can print the label correctly
@@ -99,7 +109,7 @@ int main(int argc, char **argv) {
         address = getaddr(label, line);
         if (address != -1) break;
         if (fgets(line, LINE_MAX, stdin) == NULL) {
-          fprintf(stderr, "got EOF looking for address of label %s\n", label);
+          fprintf(stderr, "got EOF looking for address of label \"%s\"\n", label);
           return 1;
         }
         update_path(line, blockpath, lastlabel);

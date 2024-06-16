@@ -1,5 +1,8 @@
-l "target/interplat.prg" 0
-pb "target/interplat.prg.labels"
 l "target/sprites.prg" 0
+l "target/alists.prg" 0
+l "target/mobactions.prg" 0
 l "target/bgchars-mc $4000.prg" 0
+l "target/interplat.prg" 0
+l "target/catfox.prg" 0
+pb "target/all.labels"
 g $c000
