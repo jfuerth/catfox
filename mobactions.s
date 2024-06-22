@@ -406,7 +406,10 @@ applygravity
 	rts
 	.bend
 
+
+; ------------------------------------
 ; ---- mob action: stay on platform
+; ------------------------------------
 platstayact
 	.block
 
@@ -427,11 +430,16 @@ platstayact
 	; if nothing under: fall
 	cmp #$80
 	bcs nofall
+	iny ; right block can also support
+	lda (r3),y
+	cmp #$80
+	bcs nofall
+
 	jsr applygravity
 	#ifalist "cffallanim","falling"
 	#setalist "cffallanim"
 falling
-	jmp done
+	bne done
 nofall
 	; stop dy
 	ldy #mobdyl
@@ -454,11 +462,13 @@ contwalk
 	bcs turnback
 
 	; if nothing ahead: reverse dx
+	; middle block if moving left
+	; right block if moving right
 	#moblda "dxh"
 	bmi checkcliff
-	inx ; look below right side
 	inx
 checkcliff
+	inx
 	txa
 	tay
 	lda (r3),y ; stepping toward this
@@ -467,8 +477,8 @@ checkcliff
 
 turnback
 	lda #0
-	sec
 	ldy #mobdxl
+	sec
 	sbc (mobptr),y
 	sta (mobptr),y
 	iny
@@ -478,10 +488,11 @@ turnback
 
 	bmi faceleft
 	#setmobxm 0
-	jmp done
+	bne done
 faceleft
 	#setmobxm 1
-done	rts
+done
+	rts
 	.bend
 
 ; ---- mob action: fly back and forth
