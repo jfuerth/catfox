@@ -62,7 +62,8 @@ target/screens: catfox.pe globals.s target/alists.symbols.s target/mobactions.sy
 	  --select-charsets='bgchars-mc*' \
 	  --load-addr='sc????=screen' \
 	  --first-sprite-addr=sprites \
-	  --mobtab-addr=scrmobs
+	  --mobtab-addr=scrmobs \
+	  --mob-behaviours-file=../mob-behaviours.json
 
 	touch target/screens
 

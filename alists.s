@@ -3,6 +3,8 @@
 
 *=alists
 
+; ---- catfox anims
+
 cfidleanim
 	.byte catfox_stand_1,60
 	.byte catfox_sitting_1,4
@@ -27,3 +29,18 @@ cffallanim
 	.byte catfox_fall_1,4
 	.byte catfox_fall_2,4
 	.byte 0,0 ; goto frame 0
+
+
+; ---- divebird
+
+dbsitanim
+	.byte divebird_1,250
+	.byte 0,0
+
+dbdiveanim
+	.byte divebird_2,10
+	.byte 0,0
+
+dbflyupanim
+	.byte divebird_1,10
+	.byte 0,0

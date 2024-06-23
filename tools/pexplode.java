@@ -29,9 +29,12 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 
 import picocli.CommandLine;
 import picocli.CommandLine.IExecutionExceptionHandler;
+import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
+import picocli.CommandLine.ParameterException;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParseResult;
+import picocli.CommandLine.Spec;
 
 public class pexplode implements Runnable {
 
@@ -51,7 +54,26 @@ public class pexplode implements Runnable {
         SPRITES, CHARSETS, SCREENS
     }
 
-    record SpriteAddress(int address) {
+    static class SpriteInfos {
+        private final Map<String, SpriteInfo> uidMap;
+
+        public SpriteInfos(Map<String, pexplode.SpriteInfo> uidMap) {
+            this.uidMap = uidMap;
+        }
+
+        public SpriteInfo findByUid(String uid) {
+            return uidMap.get(uid);
+        }
+
+        public SpriteInfo findByName(String name) {
+            return uidMap.values().stream()
+                    .filter(si -> si.name().equals(name))
+                    .findAny()
+                    .orElseThrow(() -> new IllegalArgumentException("Can't find sprite frame named \"" + name + "\""));
+        }
+    }
+
+    record SpriteInfo(String name, int address) {
         /** Returns the VIC-II sprite number for this address. */
         int spriteNum() {
             return (address % 0x4000) / 64;
@@ -90,10 +112,13 @@ public class pexplode implements Runnable {
         Map<String, Integer> symbols = new LinkedHashMap<>();
 
         /**
-         * Resolves the given string, which could be a named symbol or
-         * a literal address.
+         * Resolves the given string, which could be a named symbol, a literal address, or
+         * null (resolves to 0).
          */
         public Integer resolve(String nameOrAddress) {
+            if (nameOrAddress == null) {
+                return 0;
+            }
             Integer addr = symbols.get(nameOrAddress);
             if (addr != null) {
                 return addr;
@@ -141,10 +166,12 @@ public class pexplode implements Runnable {
         }
     }
 
+    @Spec CommandSpec spec;
+
     @Option(names = "--debug", description = "Print debug info to stderr")
     static boolean debug;
 
-    @Option(names = "--process", description = "Which asset types to process", split=",", defaultValue = "SPRITES,CHARSETS,SCREENS")
+    @Option(names = "--process", description = "Which asset types to process", split = ",", defaultValue = "SPRITES,CHARSETS,SCREENS")
     List<AssetType> process;
 
     @Option(names = "--first-sprite-addr", required = true, description = "Load address (literal or symbol) for first sprite")
@@ -175,6 +202,9 @@ public class pexplode implements Runnable {
     @Option(names = "--symbols-file", description = "File with name=address mappings for C64 addresses")
     Collection<File> symbolsFiles = new ArrayList<>();
 
+    @Option(names = "--mob-behaviours-file", description = "JSON file specifying mob behaviours for sprites on screen")
+    File mobBehavioursFile;
+
     @Parameters(description = "PETSCII Editor (.pe) file to read")
     Path inputFile;
 
@@ -201,10 +231,10 @@ public class pexplode implements Runnable {
             throw new RuntimeException(e);
         }
 
-        Map<String, SpriteAddress> spriteAddrs = calcSpriteAddrs(peProject, symbols.resolve(firstSpriteAddr));
+        SpriteInfos spriteInfos = calcSpriteInfo(peProject, symbols.resolve(firstSpriteAddr));
 
         if (process.contains(AssetType.SPRITES)) {
-            processSprites(peProject, spriteAddrs);
+            processSprites(peProject, spriteInfos);
         }
 
         if (process.contains(AssetType.CHARSETS)) {
@@ -218,10 +248,22 @@ public class pexplode implements Runnable {
         }
 
         if (process.contains(AssetType.SCREENS)) {
+            if (mobBehavioursFile == null) {
+                throw new ParameterException(
+                    spec.commandLine(),
+                     "--mob-behaviours-file is required when processing screens");
+            }
+            MobBehaviours mobBehaviours;
+            try {
+                mobBehaviours = objectMapper.readValue(mobBehavioursFile, MobBehaviours.class);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+
             for (Screen s : peProject.screens()) {
                 byte[] charData = flatten(s.charData());
                 byte[] colourData = flatten(s.colorData());
-                byte[] mobTable = createMobTable(spriteAddrs, s.sprites);
+                byte[] mobTable = createMobTable(s.sprites, spriteInfos, mobBehaviours);
                 writeCrunchedFile(s.name(), Map.of(
                         determineLoadAddress(s.name), charData,
                         determineColorLoadAddress(s.name), cleanColourData(charData, colourData),
@@ -230,17 +272,19 @@ public class pexplode implements Runnable {
         }
     }
 
-    private Map<String, SpriteAddress> calcSpriteAddrs(PetsciiProject peProject, int firstSpriteAddr) {
-        Map<String, SpriteAddress> spriteUidNums = new LinkedHashMap<>();
+    private SpriteInfos calcSpriteInfo(PetsciiProject peProject, int firstSpriteAddr) {
+        Map<String, SpriteInfo> result = new LinkedHashMap<>();
         int nextSpriteAddr = firstSpriteAddr;
         for (SpriteSet ss : peProject.spriteSets()) {
             for (int i = 0; i < ss.sprites().size(); i++) {
                 Sprite s = ss.sprites().get(i);
-                spriteUidNums.put(s.uid(), new SpriteAddress(nextSpriteAddr));
+                int numberInUi = i + 1;
+                String name = ss.name() + "_" + numberInUi;
+                result.put(s.uid(), new SpriteInfo(name, nextSpriteAddr));
                 nextSpriteAddr += 64;
             }
         }
-        return spriteUidNums;
+        return new SpriteInfos(result);
     }
 
     /**
@@ -255,9 +299,9 @@ public class pexplode implements Runnable {
      * Parameterizing all of this is possible but maybe not worth it at this stage
      * since the eventual requirements aren't known.
      * 
-     * @param spriteUidAddrs maps each Sprite::uid to the expected address.
+     * @param spriteInfos maps each Sprite::uid to its name and expected address.
      */
-    private void processSprites(PetsciiProject peProject, Map<String, SpriteAddress> spriteUidAddrs) {
+    private void processSprites(PetsciiProject peProject, SpriteInfos spriteInfos) {
         final String spriteSetName = "sprites";
         final File spritenumsFile = new File(spriteSetName + "_nums.s");
         final File spriteDataFile = new File(spriteSetName + ".prg");
@@ -265,43 +309,31 @@ public class pexplode implements Runnable {
         try (PrintWriter spriteNumsOut = new PrintWriter(spritenumsFile);
                 OutputStream dataOut = new FileOutputStream(spriteDataFile)) {
 
-            boolean first = true;
-            int nextSpriteAddr = -1;
-
+            SpriteInfo lastSprite = null;
             for (SpriteSet ss : peProject.spriteSets()) {
                 for (int i = 0; i < ss.sprites().size(); i++) {
                     Sprite s = ss.sprites().get(i);
-                    int numberInUi = i + 1;
-                    String name = ss.name() + "_" + numberInUi;
+                    SpriteInfo si = spriteInfos.findByUid(s.uid());
 
-                    SpriteAddress addr = spriteUidAddrs.get(s.uid());
-                    if (first) {
-                        first = false;
-                        nextSpriteAddr = addr.address();
+                    if (lastSprite == null) {
 
-                        // load address for .prg file
-                        writeWord(dataOut, addr.address());
+                        // emit load address for .prg file
+                        writeWord(dataOut, si.address());
 
-                        spriteNumsOut.printf("%s_first=%d%n", spriteSetName, addr.spriteNum());
+                        spriteNumsOut.printf("%s_first=%d%n", spriteSetName, si.spriteNum());
                     }
 
-                    if (addr.address() != nextSpriteAddr) {
-                        throw new AssertionError("Address of sprite %s out of sync. Expected %x; got %x".formatted(
-                                name, nextSpriteAddr, addr));
-                    }
-
-                    spriteNumsOut.printf("%s=%d ; addr=%04x%n", name, addr.spriteNum(), addr.address());
+                    spriteNumsOut.printf("%s=%d ; addr=%04x%n", si.name(), si.spriteNum(), si.address());
 
                     for (int[] spriteBits : s.bitmapData) {
                         byte b = condenseBits(spriteBits);
                         dataOut.write(b);
                     }
                     dataOut.write((byte) 0); // pad to 64 bytes
-
-                    nextSpriteAddr += 64;
+                    lastSprite = si;
                 }
             }
-            spriteNumsOut.printf("%s_last=%d%n", spriteSetName, new SpriteAddress(nextSpriteAddr).spriteNum());
+            spriteNumsOut.printf("%s_last=%d%n", spriteSetName, lastSprite.spriteNum() + 1);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -408,17 +440,68 @@ public class pexplode implements Runnable {
         }
     }
 
-    private byte[] createMobTable(Map<String, SpriteAddress> spriteUidAddrs, List<SpriteOnScreen> sprites) {
+    /**
+     * JSON file providing mobtab settings that aren't available in the SpriteOnScreen from the .pe
+     * file.
+     */
+    static record MobBehaviours(
+            List<MobBehaviours.Entry> behaviours) {
+
+        public MobBehaviours.MobTableSpec findMobTableSpec(SpriteOnScreen s, SpriteInfos spriteInfos) {
+            pexplode.SpriteInfo si = spriteInfos.findByUid(s.uid());
+            debugPrintf("Looking up behaviours for %s...%n", si);
+            for (Entry ent : behaviours) {
+                if (ent.matches(s, spriteInfos)) {
+                    debugPrintf("Found %s%n", ent);
+                    return ent.mobtab();
+                }
+            }
+            throw new IllegalArgumentException("No mobmap entry matches " + s + "(" + si + ")");
+        }
+
+        static record Entry(
+                String match,
+                MobTableSpec mobtab) {
+
+            /** Tests if this mobmap entry matches the given sprite by evaluating the match expression. */
+            boolean matches(SpriteOnScreen sos, SpriteInfos spriteInfos) {
+                String[] parts = match.split("=");
+                if (parts.length != 2) {
+                    throw new IllegalArgumentException("Bad match expression \"" + match + "\"");
+                }
+                String field = parts[0];
+                String value = parts[1];
+                return switch (field) {
+                    case "sprite.name" -> value.equals(sos.name(spriteInfos));
+                    default -> throw new IllegalArgumentException("Unsupported field \"" + field + "\"");
+                };
+            }
+        }
+
+        static record MobTableSpec(
+                float dx,
+                float dy,
+                String alist,
+                String action) {
+        }
+    }
+
+    private byte[] createMobTable(
+            List<SpriteOnScreen> sprites,
+            SpriteInfos spriteInfos,
+            MobBehaviours mobmap) {
+
         byte[] mobtab = new byte[MobTableEntry.SIZE * sprites.size() + 2];
         int offset = 0;
         for (SpriteOnScreen s : sprites) {
+            MobBehaviours.MobTableSpec spec = mobmap.findMobTableSpec(s, spriteInfos);
             MobTableEntry me = new MobTableEntry(
-                    s.x(), 0.1f,
-                    s.y(), 0f,
+                    s.x(), spec.dx(),
+                    s.y(), spec.dy(),
                     s.color(),
-                    spriteUidAddrs.get(s.uid()).spriteNum(),
-                    0, // TODO anim lists
-                    symbols.resolve("platstayact")); // TODO determine this from config file
+                    spriteInfos.findByUid(s.uid()).spriteNum(),
+                    symbols.resolve(spec.alist()),
+                    symbols.resolve(spec.action()));
             me.write(mobtab, offset);
             offset += MobTableEntry.SIZE;
         }
@@ -498,7 +581,7 @@ public class pexplode implements Runnable {
     /**
      * Finds the load address for the named segment (screen or charset). All
      * address values are resolved through the {@link #symbols} resolver.
-    */
+     */
     private int determineLoadAddress(String name, Map<String, String> nameMap, String defaultValue) {
         Matcher partNameMatcher = PART_NAME_LOAD_ADDRESS_PATTERN.matcher(name);
         String override = getByGlob(nameMap, name.toLowerCase());
@@ -890,6 +973,11 @@ public class pexplode implements Runnable {
             boolean expandX,
             boolean expandY,
             String priority) {
+
+        /** Looks up name frame name of this sprite-on-screen. */
+        public String name(SpriteInfos spriteInfos) {
+            return spriteInfos.findByUid(uid).name();
+        }
     }
 
     // chatgpt helped me figure this out

@@ -1,0 +1,40 @@
+{
+    "behaviours": [
+        {
+            "match": "sprite.name=catfox_run_1",
+            "mobtab": {
+                "dx": 0.1,
+                "dy": 0,
+                "alist": null,
+                "action": "platstayact"
+            }
+        },
+        {
+            "match": "sprite.name=catfox_run_3",
+            "mobtab": {
+                "dx": 0.2,
+                "dy": 0,
+                "alist": null,
+                "action": "platstayact"
+            }
+        },
+        {
+            "match": "sprite.name=catfox_sitting_4",
+            "mobtab": {
+                "dx": 0,
+                "dy": 0,
+                "alist": null,
+                "action": null
+            }
+        },
+        {
+            "match": "sprite.name=divebird_1",
+            "mobtab": {
+                "dx": 0,
+                "dy": 0,
+                "alist": null,
+                "action": "divebombact"
+            }
+        }
+    ]
+}

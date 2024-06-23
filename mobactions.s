@@ -495,13 +495,70 @@ done
 	rts
 	.bend
 
+
+; ------------------------------------
+; ---- mob action: dive at player
+; ------------------------------------
+divebombact
+	.block
+
+	#moblda "alist"
+	cmp #<dbdiveanim
+	beq diving
+
+	cmp #<dbflyupanim
+	beq resetting
+
+sitting ; wait for player
+	#moblda "xh"
+	cmp catmob+mobxh
+	bne done
+	; otherwise, fall through
+
+dive
+	lda #1
+	#mobsta "dyh"
+	#setalist "dbdiveanim"
+	bne done
+
+diving
+	#moblda "attl"
+	cmp #1
+	bne done
+	; done diving - fall through
+
+reset
+	lda #$ff
+	#mobsta "dyh"
+	#setalist "dbflyupanim"
+	bne done
+
+resetting
+	#moblda "attl"
+	cmp #1
+	bne done
+	lda #0
+	#mobsta "dyh"
+	#setalist "dbsitanim"
+	; fall through
+
+done
+	rts
+	.bend
+
+
+; ------------------------------------
 ; ---- mob action: fly back and forth
+; ------------------------------------
 lrflyact
 	.block
 	; TODO fill this in
 	.bend
 
+
+; ------------------------------------
 ; ---- p2 copy/paste controls ----
+; ------------------------------------
 cpstate	.byte 0
 cpsoff	= 0
 cpssel	= 1
