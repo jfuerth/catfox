@@ -93,11 +93,15 @@ Movement system
 
 Bad ideas:
 
+- what if alist goto was always an absolute 16-bit address (not offset)?
+  problem: we need to set the alist pointer to the base address,
+  so it would have to be address and offset (3 arg bytes).
+  -> better to have separate goto and setalist instructions.
 - efficiency idea: copy mob struct to zeropage before calling anim and movement routines
   overhead of attribute access using indexed indirect:
-   ldy <imm>          2
+        ldy <imm>          2
         lda (<ind>),y 5
-   TOTAL                7 cycles
+      TOTAL                7 cycles
   overhead of ZP attribute access
         lda <zp>      3
    TOTAL                3 cycles

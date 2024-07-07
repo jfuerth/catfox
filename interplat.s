@@ -287,74 +287,174 @@ skipact
 	sta (mobptr),y
 
 	; --- animation
-	ldy #mobattl
-	lda (mobptr),y
+	#moblda "attl"
 	sec
 	sbc #1
 	beq nextaframe
 	sta (mobptr),y
-	jmp donealist
+	rts
 
 nextaframe
 	; set animation frame
 	; put anim list ptr in r3/r4
-	ldy #mobalist
-	lda (mobptr),y
+	#mobldax "alist"
 	sta r3
-	iny
-	lda (mobptr),y
-	sta r4
+	stx r4
 
 	; if alist pointer is null,
 	; no alist processing
-	ora r3
+	ora r4
 	beq donealist
 
-	; fetch current anim list instr
-	; into r0/r1
+	#moblda "aframe"
+
+	; loop: fetch&exec al ops until we
+	; find a new frame
 fetchanimcode
-	ldy #mobaframe
-	lda (mobptr),y
-	sta r2 ; current list offset
+	sta r2 ; working aframe index
+	; fetch anim list instr at (r3),a
+	; into r0/r1
 	tay
 	lda (r3),y
 	sta r0 ; command/imgnum
 	iny
 	lda (r3),y
 	sta r1 ; cmd arg/frame count
-	
+
+	; process al code; keep a and y
 	ldx r0
-	bne newimg
+	; could fast-path code 0 here
+	cpx #(allastop+1)
+	bcs newimg ; it's an image number
+	;keep carry clear for op processors
 
-	; process command
-	; goto frame in r1 (still in a)
-	asl ; frame offset is frame*2
-	ldy #mobaframe
-	sta (mobptr),y
+	; process al opcode (preserve a)
+	ldy tablelo,x
+	sty doop+1
+	ldy tablehi,x
+	sty doop+2
+doop
+	jmp $ffff ;selfmod
+tablelo
+  .byte <fetchanimcode ; new index in a
+  .byte <setdx,<incdx,<decdx
+  .byte <setdy,<incdy,<decdy
+  .byte <jmpalist
+tablehi
+  .byte >fetchanimcode
+  .byte >setdx,>incdx,>decdx
+  .byte >setdy,>incdy,>decdy
+  .byte >jmpalist
 
-	; try again with new aframe offs
-	jmp fetchanimcode
-	
-newimg
-	; update list position
+newimg ; next alist position & exit
 	clc
 	lda r2
 	adc #2
-	ldy #mobaframe
-	sta (mobptr),y
+	#mobsta "aframe"
 	
 	; set frame ttl counter
 	lda r1
-	ldy #mobattl
-	sta (mobptr),y
+	#mobsta "attl"
 
 	; update mobimg
 	lda r0 ; new image num
-	ldy #mobimg
-	sta (mobptr),y
+	#mobsta "img"
+donealist
+	rts ; end of alist processing
 
-donealist ; end of alist processing
-	rts
+; alist op processors
+; r0 has opcode (also in x)
+; r1 has arg/frame count (also in a)
+; r2 has aframe offset of current op
+; r3/r4 has alist base addr
+; carry flag is clear
+
+setdx
+	#mobsta "dxl"
+	lda #2 ; 2nd op arg
+	adc r2 ; + aframe index
+	tay
+	lda (r3),y
+	#mobsta "dxh"
+	jmp next3
+
+incdx
+	#moblda "dxl"
+	adc r1
+	sta (mobptr),y
+	iny
+	lda (mobptr),y
+	adc #0
+	sta (mobptr),y
+	jmp next2
+
+decdx
+	#moblda "dxl"
+	sec
+	sbc r1
+	sta (mobptr),y
+	iny
+	lda (mobptr),y
+	sbc #0
+	sta (mobptr),y
+	jmp next2
+
+setdy
+	#mobsta "dyl"
+	lda #2 ; 2nd op arg
+	adc r2 ; + aframe index
+	tay
+	lda (r3),y
+	#mobsta "dyh"
+	bne next3
+
+incdy
+	#moblda "dyl"
+	adc r1 ; could be combined with incdx starting here
+	sta (mobptr),y
+	iny
+	lda (mobptr),y
+	adc #0
+	sta (mobptr),y
+	jmp next2
+
+decdy
+	#moblda "dyl"
+	sec ; could be combined with decdy starting here
+	sbc r1
+	sta (mobptr),y
+	iny
+	lda (mobptr),y
+	sbc #0
+	sta (mobptr),y
+	jmp next2
+
+jmpalist
+	; get alist addr hi byte
+	lda #2 ; 2nd op arg
+	adc r2 ; + aframe index
+	tay
+	lda (r3),y
+	tax ; target alist hi byte
+	lda r1 ; target alist lo byte
+	#mobstax "alist"
+	lda #0
+	#mobsta "aframe"
+	lda #1
+	#mobsta "attl"
+
+	 ; start over at new alist
+	jmp nextaframe
+
+next2
+	lda r2
+	adc #2
+	jmp fetchanimcode
+
+next3
+	lda r2
+	adc #3
+	jmp fetchanimcode
 	.bend
 
 ; --------- vic update ---------

@@ -506,41 +506,37 @@ divebombact
 	cmp #<dbdiveanim
 	beq diving
 
+	cmp #<dblandedanim
+	beq done
+
 	cmp #<dbflyupanim
 	beq resetting
 
-sitting ; wait for player
+sitting ; watch for player
 	#moblda "xh"
 	cmp catmob+mobxh
 	bne done
-	; otherwise, fall through
+	; fall through: player nearby
 
 dive
-	lda #1
-	#mobsta "dyh"
 	#setalist "dbdiveanim"
-	bne done
+	rts
 
 diving
-	#moblda "attl"
-	cmp #1
-	bne done
-	; done diving - fall through
-
-reset
-	lda #$ff
-	#mobsta "dyh"
-	#setalist "dbflyupanim"
+	; stop early if we hit ground
+	#moblda "xh"
+	tax
+	#moblda "yh"
+	tay
+	iny
+	jsr getsc
+	cmp #$80
+	bcc done
+	#setalist "dblandedanim"
 	bne done
 
 resetting
-	#moblda "attl"
-	cmp #1
-	bne done
-	lda #0
-	#mobsta "dyh"
-	#setalist "dbsitanim"
-	; fall through
+	; TODO stop at block above
 
 done
 	rts
@@ -617,6 +613,21 @@ done
 ;  C= N: save as new stamp
 	.bend
 
+getsc
+; find the screencode at (x,y)
+; x -> horizontal char pos 0..39
+; y -> vertical char pos 0..24
+; r3&r4 <- pointer to start of line
+; trashes a,x,y
+	.block
+	tya
+	jsr pointsc
+	txa
+	tay
+	lda (r3),Y
+	rts
+	.bend
+
 pointsc
 ; point r3&r4 at at screen line y
 ; example:
@@ -627,7 +638,7 @@ pointsc
 ;  sta (r3),y
 ; a -> vertical char pos 0..24
 ; r3&r4 <- pointer to start of line
-; trashes y
+; trashes a,y
 	.block
 	; find line addr in table
 	asl a

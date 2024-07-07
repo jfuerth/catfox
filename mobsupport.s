@@ -3,18 +3,33 @@ mobxl=0
 mobxh=1
 mobdxl=2
 mobdxh=3
+
 mobyl=4
 mobyh=5
 mobdyl=6
 mobdyh=7
+
 mobcolr=8 ; bit 7 set: disabled
           ; bit 6 set: x-mirrored
 mobimg=9
 mobalist=10 ; +11
+
 mobaframe=12
 mobattl=13 ; countdown current frame
 mobact=14 ; +15
 mobstructsz=16
+
+; alist instruction codes
+;opcodes
+algoto=0
+alsetdx=1 ; 2-byte arg
+alincdx=2
+aldecdx=3
+alsetdy=4 ; 2-byte arg
+alincdy=5
+aldecdy=6
+aljmpalist=7 ; 2-byte arg
+allastop=7
 
 ; mobXXX functions: read/write mob
 ; struct pointed to by mobptr

@@ -34,7 +34,8 @@ target/alists.prg.labels: target/alists.prg
 
 target/alists.symbols.s: target/alists.prg.labels
 	cat $< \
-		| sed -E 's/add_label (....) \.(.*)/\2=$$\1/' > $@
+		| sed -E 's/add_label (....) \.(.*)/\2=$$\1/' \
+		| grep -v '\.' > $@
 
 ## mob action routines (uses alist symbols)
 #   - output symbol table to reference in screen file mobtabs
@@ -46,7 +47,8 @@ target/mobactions.prg.labels: target/mobactions.prg
 
 target/mobactions.symbols.s: target/mobactions.prg.labels
 	cat $< \
-		| sed -E 's/add_label (....) \.(.*)/\2=$$\1/' > $@
+		| sed -E 's/add_label (....) \.(.*)/\2=$$\1/' \
+		| grep -v '\.' > $@
 
 ## remaining assets from catfox.pe (uses global symbols)
 #   - charset
