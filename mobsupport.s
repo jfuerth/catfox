@@ -29,7 +29,8 @@ alsetdy=4 ; 2-byte arg
 alincdy=5
 aldecdy=6
 aljmpalist=7 ; 2-byte arg
-allastop=7
+alsetxm=8
+allastop=8
 
 ; mobXXX functions: read/write mob
 ; struct pointed to by mobptr

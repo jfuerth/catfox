@@ -121,3 +121,7 @@ Bad ideas:
   -> better idea is to use table per attribute, indexed by mob. then can access with
         lda <abs>,x   4  (bonus: abs,y works too)
                       = 3 cycles cheaper
+
+Cheat sheet
+- conditional breakpoint based on memory location in VICE:
+    bk c30a if @cpu:0008 == $40

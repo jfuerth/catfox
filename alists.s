@@ -40,8 +40,11 @@ cffallanim
 
 dbwaitanim
 	.byte alsetdy,0,0
-	.byte bat_1,250
-	; TODO x-mirror shifty eyes
+	.byte bat_1,50
+	; x-mirror shifty eyes
+	.byte alsetxm,1
+	.byte bat_1,4
+	.byte alsetxm,0
 	.byte algoto,3
 
 dbdiveanim

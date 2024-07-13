@@ -339,12 +339,12 @@ tablelo
   .byte <fetchanimcode ; new index in a
   .byte <setdx,<incdx,<decdx
   .byte <setdy,<incdy,<decdy
-  .byte <jmpalist
+  .byte <jmpalist,<setxm
 tablehi
   .byte >fetchanimcode
   .byte >setdx,>incdx,>decdx
   .byte >setdy,>incdy,>decdy
-  .byte >jmpalist
+  .byte >jmpalist,>setxm
 
 newimg ; next alist position & exit
 	clc
@@ -445,6 +445,19 @@ jmpalist
 
 	 ; start over at new alist
 	jmp nextaframe
+
+setxm
+	#moblda "colr"
+	ldx r1
+	bne xm1
+xm0
+	and #%10111111
+	jmp storexm
+xm1
+	ora #%01000000
+storexm
+	#mobsta "colr"
+	bne next2
 
 next2
 	lda r2
