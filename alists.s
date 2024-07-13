@@ -38,25 +38,34 @@ cffallanim
 
 ; ---- divebat
 
-dbsitanim
-	.byte divebird_1,250
+dbwaitanim
+	.byte bat_1,250
+	; TODO x-mirror shifty eyes
 	.byte algoto,0
 
 dbdiveanim
 	.byte alincdy,200
-	.byte divebird_2,10
+	.byte bat_2,10
 	.byte aljmpalist
 	.word dblandedanim
 
 dblandedanim
 	.byte alsetdy,0,0
-	.byte divebird_1,30
+	.byte bat_3,6
+	.byte bat_4,6
+	.byte bat_3,6
+	.byte bat_4,6
+	.byte bat_3,6
 	.byte aljmpalist
 	.word dbflyupanim
 
 dbflyupanim
-	.byte aldecdy,200 ; match diveanim
-	.byte divebird_1,10 ; match
+	.byte aldecdy,100 ; 1/2 diveanim
+	.byte bat_4,4 ; add to 20
+	.byte bat_3,4 ; add to 20
+	.byte bat_4,4 ; add to 20
+	.byte bat_3,4 ; add to 20
+	.byte bat_4,4 ; add to 20
 	.byte alsetdy,0,0
 	.byte aljmpalist
-	.word dbsitanim
+	.word dbwaitanim

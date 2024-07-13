@@ -28,7 +28,7 @@
             }
         },
         {
-            "match": "sprite.name=divebird_1",
+            "match": "sprite.name=bat_1",
             "mobtab": {
                 "dx": 0,
                 "dy": 0,
