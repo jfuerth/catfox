@@ -516,10 +516,12 @@ sitting ; watch for player
 	#moblda "xh"
 	cmp catmob+mobxh
 	bne done
-	; fall through: player nearby
-
+	#moblda "yh"
+	cmp catmob+mobyh
+	bcs done
 dive
 	#setalist "dbdiveanim"
+done
 	rts
 
 diving
@@ -533,12 +535,20 @@ diving
 	cmp #$80
 	bcc done
 	#setalist "dblandedanim"
-	bne done
+	rts
 
 resetting
-	; TODO stop at block above
-
-done
+	; stop at block above
+	#moblda "xh"
+	tax
+	#moblda "yh"
+	sec
+	sbc #3
+	tay
+	jsr getsc
+	cmp #$80
+	bcc done
+	#setalist "dbwaitanim"
 	rts
 	.bend
 
