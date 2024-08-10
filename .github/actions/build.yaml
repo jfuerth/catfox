@@ -1,0 +1,39 @@
+name: Build
+run-name: Build d64
+on: [push]
+jobs:
+  build:
+    # At a minimum this job should upload artifacts using actions/upload-pages-artifact
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+      - name: Make
+        run: |
+          make catfox.d64
+      - name: Stage pages site
+        run: cp catfox.d64 site/
+      - name: Upload pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+      - run: |
+          echo "Job status: ${{ job.status }}"
+
+  deploy:
+    needs: build
+    permissions:
+      pages: write      # to deploy to Pages
+      id-token: write   # to verify the deployment originates from an appropriate source
+
+    # Deploy to the github-pages environment
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    # Specify runner + deployment step
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
