@@ -4,6 +4,17 @@
 
 #define LINE_MAX 1000
 
+static size_t safe_strcpy(char *dst, const char *source, size_t size) {
+  size_t slen = strlen(source);
+  if (slen > size - 1) {
+    slen = size - 1;
+  }
+  for (int i = 0; i < slen; i++) {
+    dst[i] = source[i];
+  }
+  dst[slen] = '\0';
+}
+
 int getaddr(char *label, char *line) {
   char scanbuf[5];
   for (int i = 0; i < 4; i++) {
@@ -41,7 +52,7 @@ void push_path(char *path, const char *segment) {
 }
 
 void pop_path(char *path) {
-  for (int i = strnlen(path, LINE_MAX); i >= 0; i--) {
+  for (int i = strlen(path); i >= 0; i--) {
     if (path[i] == '.') {
       path[i] = '\0';
       break;
@@ -51,12 +62,12 @@ void pop_path(char *path) {
 }
 
 int update_path(const char *line, char *blockpath, const char *lastlabel) {
-  if (strnstr(line, ".block", LINE_MAX)) {
+  if (strstr(line, ".block")) {
     push_path(blockpath, lastlabel);
     return 1;
   }
 
-  if (strnstr(line, ".bend", LINE_MAX)) {
+  if (strstr(line, ".bend")) {
     pop_path(blockpath);
     return -1;
   }
@@ -96,12 +107,12 @@ int main(int argc, char **argv) {
         continue;
       }
 
-      strncpy(lastlabel, label, LINE_MAX);
+      safe_strcpy(lastlabel, label, LINE_MAX);
 
       // remember original path so we can print the label correctly
       // if we encounter a .block or .bend while looking for the address
       char oldpath[LINE_MAX];
-      strncpy(oldpath, blockpath, LINE_MAX);
+      safe_strcpy(oldpath, blockpath, LINE_MAX);
 
       // find closest line (starting with this one) that has an address. That's the label's address.
       int address;
