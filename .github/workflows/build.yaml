@@ -8,6 +8,13 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
+      - name: Install build tools
+        run: |
+          curl -s "https://get.sdkman.io" | bash
+          source ~/.bash_profile 
+          sdk version
+          sdk install java
+          sdk install jbang
       - name: Make
         run: |
           make catfox.d64
