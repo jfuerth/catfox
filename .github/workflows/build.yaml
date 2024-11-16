@@ -11,7 +11,7 @@ jobs:
       - name: Install build tools
         run: |
           curl -s "https://get.sdkman.io" | bash
-          source ~/.bash_profile 
+          source ~/.sdkman/bin/sdkman-init.sh
           sdk version
           sdk install java
           sdk install jbang
