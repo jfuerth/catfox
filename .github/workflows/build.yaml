@@ -15,8 +15,13 @@ jobs:
           sdk version
           sdk install java
           sdk install jbang
+          which java
+          which jbang
       - name: Make
         run: |
+          sdk version
+          which java
+          which jbang
           make catfox.d64
       - name: Stage pages site
         run: cp catfox.d64 site/
