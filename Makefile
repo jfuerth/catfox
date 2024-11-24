@@ -27,7 +27,7 @@ target/sprites_nums.s: target/sprites.prg
 #     - mob action routines (including start address, which can follow last alist)
 #     - screen file mobtabs
 target/alists.prg: alists.s target/sprites_nums.s globals.s
-	tmpx -i alists.s -o target/alists.prg -l target/alists.prg.list
+	tools/tmpx -i alists.s -o target/alists.prg -l target/alists.prg.list
 	cat target/alists.prg.list | tools/tmplab2vice > target/alists.prg.labels
 
 target/alists.prg.labels: target/alists.prg
@@ -40,7 +40,7 @@ target/alists.symbols.s: target/alists.prg.labels
 ## mob action routines (uses alist symbols)
 #   - output symbol table to reference in screen file mobtabs
 target/mobactions.prg: mobactions.s target/alists.symbols.s mobsupport.s globals.s
-	tmpx -i mobactions.s -o target/mobactions.prg -l target/mobactions.prg.list
+	tools/tmpx -i mobactions.s -o target/mobactions.prg -l target/mobactions.prg.list
 	cat target/mobactions.prg.list | tools/tmplab2vice > target/mobactions.prg.labels
 
 target/mobactions.prg.labels: target/mobactions.prg
@@ -76,7 +76,7 @@ target/charset.prg: catfox.pe target/screens
 # to know the first and last sprite nums so it can mirror the images
 # during init.
 target/interplat.prg: interplat.s globals.s mobsupport.s math16.s target/sprites_nums.s
-	tmpx -i interplat.s -o target/interplat.prg -l target/interplat.prg.list
+	tools/tmpx -i interplat.s -o target/interplat.prg -l target/interplat.prg.list
 	cat target/interplat.prg.list | tools/tmplab2vice > target/interplat.prg.labels
 
 ## c64 loader program - should be first file on disk image

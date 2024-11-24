@@ -1,0 +1,130 @@
+
+  Б              А                           А              Б
+  лА             ллБ                       Влл             Ал
+  лл             ллллВБ                 БВлллл             лл
+  ллл            лллллллВ             Вллллллл            ллл
+  лллВ           лллллллллВБ       БВллллллллл           Вллл
+  ллллБ          ллллллллллллВ   Влллллллллллл          Влллл
+  лллллБ         ллллллллллллллВлллллллллллллл         Бллллл
+  ллллллА        ллллллллллллВ   Влллллллллллл        Алллллл
+  ллллллл        лллллллллВБ       БВллллллллл        ллллллл
+  лллллллл       ллллллВВ             ВВлллллл       лллллллл
+  ллллллллл      ллллБА                 АБлллл      ллллллллл
+  лллллллллВ     ллБ                       Влл     Вллллллллл
+  ллллллллллБ    А            млм            А    Блллллллллл
+  лллллллллллА               ллллл               Аллллллллллл
+  лллллллллллл                плп                лллллллллллл
+  ллллллллллллл                                 ллллллллллллл
+  лллллллллллллл                               лллллллллллллл
+  ллллллллллллллл                             ллллллллллллллл
+  лллллллллллллллВ            млм            Вллллллллллллллл
+  ллллллллллллллллБ          ллллл          Блллллллллллллллл
+  лллллллллллллллллБ          плп          Бллллллллллллллллл
+  ллллллллллллллллллА                     Алллллллллллллллллл
+  ллллллллллллллллллл                     ллллллллллллллллллл
+  лллллллллллллллллллл                   лллллллллллллллллллл
+  ллллллллллллллллллллВ       млм       Влллллллллллллллллллл
+  лллллллллллллллллллллВ     ллллл     Вллллллллллллллллллллл
+  ллллллллллллллллллллллБ     плп     Блллллллллллллллллллллл
+  лллллллллллллллллллллллА           Аллллллллллллллллллллллл
+  лллллллллллллллллллллллл           лллллллллллллллллллллллл
+  ллллллллллллллллллллллллл         ллллллллллллллллллллллллл
+  лллллллллллллллллллллллллл       лллллллллллллллллллллллллл
+  ллллллллллллллллллллллллллл     ллллллллллллллллллллллллллл
+  лллллллллллллллллллллллллллВ   Вллллллллллллллллллллллллллл
+  ллллллллллллллллллллллллллллВ Влллллллллллллллллллллллллллл
+  лллллллллллллллллллллллллллллВллллллллллллллллллллллллллллл
+
+     лллА    лллллллллА   лллА    лллА   лллА        лллллллА
+    лллА     лллллллллА   лллА    лллА   лллА        лллллллА
+   лллА         лллА       лллА  лллА    лллА        лллА
+   лллА         лллА       лллА  лллА    лллА        лллА
+    лллА        лллА        ллВ ВллА     лллА        лллА
+     лллА       лллА        ллл лллА     лллА        лллА
+      лллА      лллА         лллллА      лллА        лллллллА
+       лллА     лллА         лллллА      лллА        лллллллА
+        лллА    лллА          лллА       лллА        лллА
+         лллА   лллА          лллА       лллА        лллА
+         лллА   лллА          лллА       лллА        лллА
+         лллА   лллА          лллА       лллА        лллА
+        лллА    лллА          лллА       лллА        лллА
+       лллА     лллА          лллА       лллА        лллА
+     ллллА      лллА          лллА       лллллллА    лллллллА
+    лллА        лллА          лллА       лллллллА    лллллллА
+
+  п ппппппппппппппппппппппппппппппппппппппппппппппппппппппп п
+     title: TMPx v1.1.0                   type: assembler
+      date: August 15, 2015           platform: multiple   
+  м ммммммммммммммммммммммммммммммммммммммммммммммммммммммм м
+
+     TMPx (pronounced "T-M-P cross") is the multiplatform
+    cross assembler version of Turbo Macro Pro, itself
+    derived from the famous Turbo Assembler series for
+    the native C64. TMPx was the first cross assembler
+    released with full support for the syntax of Turbo
+    Macro Pro (i.e. same as the original Turbo Assembler
+    Macro). Our goal is to make TMPx as accurate as
+    possible at the semantic level when assembling sources
+    that are written against its native counterparts.
+
+     TLDR: TMPx v1.1.0 should produce identical object
+    code as Turbo Macro Pro v1.2 for the same source.
+    If it doesn't, please report your issue here:
+
+              http://style64.org/contact-style
+
+
+    Change summary:
+
+     * new: -S/--start <start> (set default start address)
+
+     * new: -L/--omit-load (omit 2 byte load address)
+
+     * new: -I/--include-path <path>
+       (adds <path> to .include search locations)
+
+     * new: respects 'TURBO_INCLUDE_PATH' environment
+       variable during .include search
+
+     * fix: assembles from stdin if -o <file> not used
+       (defaults output to 'out.prg')
+
+     * new: reports all assembled address ranges
+
+     * new: overlap checking:
+       > defaults to only warning if overlap detected
+       > -R/--error-overlap will regard overlap as an
+         error and the first 5 lines causing overlap
+         are reported
+       > ('overlap' in TMPx is different object code
+         outputted to the same address(es))
+
+     * new: recognizes every ascii token from bastext,
+       tok64, petcat, and Style's own token sets
+
+     * a couple command line option changes, see --help
+
+     * some bug fixes and increased unit test coverage
+       against Turbo Macro Pro (therefore also classic
+       Turbo Assembler Macro)
+
+
+     For more information:
+ 
+                   http://turbo.style64.org
+
+            http://turbo.style64.org/documentation
+
+  п ппппппппппппппппппппппппппппппппппппппппппппппппппппппп п
+                          Greetings
+
+       NTSC: FTA, FOE, PSW, Venom, Retro64, RPG, UDI,
+             Arkanix Labs, Krionyx, Carcass, Electron
+
+        PAL: Censor Design, Scene World staff
+
+         PC: Deathy/Brainstorm, Vintage
+
+  п ппппппппппппппппппппппппппппппппппппппппппппппппппппппп п
+                   Keep scene spirit alive!
+  м ммммммммммммммммммммммммммммммммммммммммммммммммммммммм м
