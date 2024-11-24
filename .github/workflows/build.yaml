@@ -19,6 +19,7 @@ jobs:
           which jbang
       - name: Make
         run: |
+          source ~/.sdkman/bin/sdkman-init.sh
           sdk version
           which java
           which jbang
