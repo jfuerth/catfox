@@ -4,16 +4,16 @@ mydir=$(dirname "$0")
 
 case "$(uname)" in
     Darwin)
-        exec "${mydir}/TMPx_v1.1.0-STYLE/maxosx-x86_64/tmpx" "$*"
+        exec "${mydir}/TMPx_v1.1.0-STYLE/maxosx-x86_64/tmpx" "$@"
         ;;
     Linux)
-        exec "${mydir}/TMPx_v1.1.0-STYLE/linux-x86_64/tmpx" "$*"
+        exec "${mydir}/TMPx_v1.1.0-STYLE/linux-x86_64/tmpx" "$@"
         ;;
     FreeBSD)
-        exec "${mydir}/TMPx_v1.1.0-STYLE/linux-x86_64/tmpx" "$*"
+        exec "${mydir}/TMPx_v1.1.0-STYLE/linux-x86_64/tmpx" "$@"
         ;;
     Solaris)
-        exec "${mydir}/TMPx_v1.1.0-STYLE/linux-x86_64/tmpx" "$*"
+        exec "${mydir}/TMPx_v1.1.0-STYLE/linux-x86_64/tmpx" "$@"
         ;;
     *)
         echo "Unknown OS '$(uname)'"

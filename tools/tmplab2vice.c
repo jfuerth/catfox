@@ -13,6 +13,7 @@ static size_t safe_strcpy(char *dst, const char *source, size_t size) {
     dst[i] = source[i];
   }
   dst[slen] = '\0';
+  return slen;
 }
 
 int getaddr(char *label, char *line) {
